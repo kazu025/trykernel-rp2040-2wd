@@ -38,6 +38,11 @@ static void cmd_motion(int argc, char *argv[]);
 static void cmd_msgsend(int argc, char *argv[]);
 static void cmd_msgtest(int argc, char *argv[]);
 static void cmd_flashid(int argc, char *argv[]);
+static void cmd_flashstatus(int argc, char *argv[]);
+static void cmd_flashwen(int argc, char *argv[]);
+static void cmd_flasherase(int argc, char *argv[]);
+static void cmd_flashwrite(int argc, char *argv[]);
+static void cmd_flashread(int argc, char *argv[]);
 static void cmd_lcdtest(int argc, char *argv[]);
 static void cmd_lcdtemp(int argc, char *argv[]);
 static void cmd_lcdcolor(int argc, char *argv[]);
@@ -72,6 +77,11 @@ static const command_t command_table[] = {
     {"msgsend", cmd_msgsend, "send a test message to another task"},
     {"msgtest", cmd_msgtest, "test message FIFO, full queue and timeout"},
     {"flashid", cmd_flashid, "show SPI flash JEDEC ID"},
+    {"flashstatus", cmd_flashstatus, "show SPI flash status register-1"},
+    {"flashwen", cmd_flashwen, "test SPI flash Write Enable latch"},
+    {"flasherase", cmd_flasherase, "erase last test sector: confirm"},
+    {"flashwrite", cmd_flashwrite, "write and verify last test sector: confirm"},
+    {"flashread", cmd_flashread, "read first 32 bytes of last test sector"},
     {"lcdtest", cmd_lcdtest, "test Grove RGB LCD V5.0"},
     {"lcdtemp", cmd_lcdtemp, "show ADT7410 temperature on LCD"},
     {"lcdcolor", cmd_lcdcolor, "set LCD backlight: R G B"},
@@ -970,4 +980,252 @@ static void cmd_flashid(int argc, char *argv[])
     }else{
         uart_tx_send("Capacity: unknown\r\n");
     }
+}
+
+static void cmd_flashstatus(int argc, char *argv[])
+{
+    UB status;
+
+    (void)argc;
+    (void)argv;
+
+    if(w25qxx_read_status1(&status) == FALSE){
+        uart_tx_send("SPI flash status register-1 read error\r\n");
+        return;
+    }
+
+    uart_tx_printf("SPI flash status register-1: 0x%x\r\n", (UINT)status);
+    uart_tx_printf(
+        "  BUSY=%u WEL=%u\r\n",
+        ((status & W25QXX_STATUS1_BUSY) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_WEL) != 0U) ? 1U : 0U
+    );
+    uart_tx_printf(
+        "  BP2=%u BP1=%u BP0=%u TB=%u SEC=%u SRP0=%u\r\n",
+        ((status & W25QXX_STATUS1_BP2) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_BP1) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_BP0) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_TB) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_SEC) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_SRP0) != 0U) ? 1U : 0U
+    );
+}
+
+static void cmd_flashwen(int argc, char *argv[])
+{
+    UB status;
+
+    (void)argc;
+    (void)argv;
+
+    if(w25qxx_write_enable() == FALSE
+            || w25qxx_read_status1(&status) == FALSE){
+        uart_tx_send("SPI flash Write Enable error\r\n");
+        (void)w25qxx_write_disable();
+        return;
+    }
+
+    uart_tx_printf(
+        "Write Enable: WEL=%u BUSY=%u\r\n",
+        ((status & W25QXX_STATUS1_WEL) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_BUSY) != 0U) ? 1U : 0U
+    );
+
+    if(w25qxx_write_disable() == FALSE
+            || w25qxx_read_status1(&status) == FALSE){
+        uart_tx_send("SPI flash Write Disable error\r\n");
+        return;
+    }
+
+    uart_tx_printf(
+        "Write Disable: WEL=%u BUSY=%u\r\n",
+        ((status & W25QXX_STATUS1_WEL) != 0U) ? 1U : 0U,
+        ((status & W25QXX_STATUS1_BUSY) != 0U) ? 1U : 0U
+    );
+}
+
+static void cmd_flasherase(int argc, char *argv[])
+{
+    w25qxx_jedec_id_t jedec_id;
+    UB verify_buffer[64];
+    UW capacity;
+    UW test_address;
+    UW offset;
+    UINT i;
+
+    if((argc != 2) || (str_eq(argv[1], "confirm") == FALSE)){
+        uart_tx_send("usage: flasherase confirm\r\n");
+        uart_tx_send("WARNING: erases the last 4KB test sector\r\n");
+        return;
+    }
+
+    if(w25qxx_read_jedec_id(&jedec_id) == FALSE){
+        uart_tx_send("SPI flash JEDEC ID read error\r\n");
+        return;
+    }
+    capacity = w25qxx_capacity_bytes(jedec_id.capacity_id);
+    if((capacity < W25QXX_SECTOR_SIZE) || (capacity > 0x01000000U)){
+        uart_tx_send("Unsupported SPI flash capacity\r\n");
+        return;
+    }
+
+    test_address = capacity - W25QXX_SECTOR_SIZE;
+    uart_tx_printf(
+        "Erasing last 4KB test sector at 0x%x...\r\n",
+        (UINT)test_address
+    );
+
+    if(w25qxx_sector_erase(test_address) == FALSE){
+        uart_tx_send("SPI flash sector erase error\r\n");
+        return;
+    }
+
+    for(offset = 0U; offset < W25QXX_SECTOR_SIZE;
+            offset += sizeof(verify_buffer)){
+        if(w25qxx_read(
+                test_address + offset,
+                verify_buffer,
+                sizeof(verify_buffer)) == FALSE){
+            uart_tx_send("SPI flash erase verify read error\r\n");
+            return;
+        }
+        for(i = 0U; i < sizeof(verify_buffer); i++){
+            if(verify_buffer[i] != 0xFFU){
+                uart_tx_printf(
+                    "SPI flash erase verify error at 0x%x: 0x%x\r\n",
+                    (UINT)(test_address + offset + i),
+                    (UINT)verify_buffer[i]
+                );
+                return;
+            }
+        }
+    }
+
+    uart_tx_printf(
+        "Sector erase complete: 0x%x-0x%x all 0xff\r\n",
+        (UINT)test_address,
+        (UINT)(test_address + W25QXX_SECTOR_SIZE - 1U)
+    );
+}
+
+static void cmd_flashwrite(int argc, char *argv[])
+{
+    static const UB test_data[] = "TryKernel W25Q32 test";
+    w25qxx_jedec_id_t jedec_id;
+    UB read_data[sizeof(test_data)];
+    UW capacity;
+    UW test_address;
+    UINT i;
+
+    if((argc != 2) || (str_eq(argv[1], "confirm") == FALSE)){
+        uart_tx_send("usage: flashwrite confirm\r\n");
+        uart_tx_send("WARNING: programs data in the last 4KB test sector\r\n");
+        return;
+    }
+
+    if(w25qxx_read_jedec_id(&jedec_id) == FALSE){
+        uart_tx_send("SPI flash JEDEC ID read error\r\n");
+        return;
+    }
+    capacity = w25qxx_capacity_bytes(jedec_id.capacity_id);
+    if((capacity < W25QXX_SECTOR_SIZE) || (capacity > 0x01000000U)){
+        uart_tx_send("Unsupported SPI flash capacity\r\n");
+        return;
+    }
+    test_address = capacity - W25QXX_SECTOR_SIZE;
+
+    if(w25qxx_read(test_address, read_data, sizeof(read_data)) == FALSE){
+        uart_tx_send("SPI flash pre-write read error\r\n");
+        return;
+    }
+    for(i = 0U; i < sizeof(read_data); i++){
+        if(read_data[i] != 0xFFU){
+            uart_tx_send("Test area is not erased; run flasherase confirm first\r\n");
+            return;
+        }
+    }
+
+    uart_tx_printf(
+        "Programming %u bytes at 0x%x...\r\n",
+        (UINT)sizeof(test_data),
+        (UINT)test_address
+    );
+    if(w25qxx_page_program(
+            test_address, test_data, sizeof(test_data)) == FALSE){
+        uart_tx_send("SPI flash page program error\r\n");
+        return;
+    }
+
+    if(w25qxx_read(test_address, read_data, sizeof(read_data)) == FALSE){
+        uart_tx_send("SPI flash program verify read error\r\n");
+        return;
+    }
+    for(i = 0U; i < sizeof(read_data); i++){
+        if(read_data[i] != test_data[i]){
+            uart_tx_printf(
+                "SPI flash verify error at 0x%x: wrote=0x%x read=0x%x\r\n",
+                (UINT)(test_address + i),
+                (UINT)test_data[i],
+                (UINT)read_data[i]
+            );
+            return;
+        }
+    }
+
+    uart_tx_printf("Page program verify complete: %s\r\n", read_data);
+}
+
+static void cmd_flashread(int argc, char *argv[])
+{
+    w25qxx_jedec_id_t jedec_id;
+    UB data[32];
+    char text[33];
+    UW capacity;
+    UW test_address;
+    UINT i;
+
+    (void)argc;
+    (void)argv;
+
+    if(w25qxx_read_jedec_id(&jedec_id) == FALSE){
+        uart_tx_send("SPI flash JEDEC ID read error\r\n");
+        return;
+    }
+    capacity = w25qxx_capacity_bytes(jedec_id.capacity_id);
+    if((capacity < W25QXX_SECTOR_SIZE) || (capacity > 0x01000000U)){
+        uart_tx_send("Unsupported SPI flash capacity\r\n");
+        return;
+    }
+    test_address = capacity - W25QXX_SECTOR_SIZE;
+
+    if(w25qxx_read(test_address, data, sizeof(data)) == FALSE){
+        uart_tx_send("SPI flash test data read error\r\n");
+        return;
+    }
+
+    uart_tx_printf(
+        "SPI flash data at 0x%x (%u bytes):\r\n",
+        (UINT)test_address,
+        (UINT)sizeof(data)
+    );
+    for(i = 0U; i < sizeof(data); i += 8U){
+        uart_tx_printf(
+            "  0x%x: %x %x %x %x %x %x %x %x\r\n",
+            (UINT)(test_address + i),
+            (UINT)data[i], (UINT)data[i + 1U],
+            (UINT)data[i + 2U], (UINT)data[i + 3U],
+            (UINT)data[i + 4U], (UINT)data[i + 5U],
+            (UINT)data[i + 6U], (UINT)data[i + 7U]
+        );
+    }
+
+    for(i = 0U; i < sizeof(data); i++){
+        if((data[i] >= 0x20U) && (data[i] <= 0x7EU)){
+            text[i] = (char)data[i];
+        }else{
+            text[i] = '.';
+        }
+    }
+    text[sizeof(data)] = '\0';
+    uart_tx_printf("ASCII: %s\r\n", text);
 }
