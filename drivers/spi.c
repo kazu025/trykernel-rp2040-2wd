@@ -39,10 +39,10 @@ void spi0_init(void)
     /* ポーリング方式のため割り込みは使用しない */
     out_w(SPI0_BASE + SPIx_IMSC, 0U);
     out_w(SPI0_BASE + SPIx_ICR, 0x03U);
-
+    /* SPI0を有効にする */
     out_w(SPI0_BASE + SPIx_CR1, SPI_CR1_SSE);
 }
-
+/* 1バイト送信、1バイト受信 */
 BOOL spi0_transfer(UB tx_data, UB *rx_data)
 {
     UW count;
@@ -50,6 +50,7 @@ BOOL spi0_transfer(UB tx_data, UB *rx_data)
     if(rx_data == NULL) return FALSE;
 
     for(count = 0U; count < SPI0_TIMEOUT_LOOP; count++){
+        /* 送信可能か確認 */
         if((in_w(SPI0_BASE + SPIx_SR) & SPI_SR_TNF) != 0U){
             break;
         }
@@ -59,8 +60,23 @@ BOOL spi0_transfer(UB tx_data, UB *rx_data)
     out_w(SPI0_BASE + SPIx_DR, tx_data);
 
     for(count = 0U; count < SPI0_TIMEOUT_LOOP; count++){
+        /* 受信可能か確認 */
         if((in_w(SPI0_BASE + SPIx_SR) & SPI_SR_RNE) != 0U){
             *rx_data = (UB)in_w(SPI0_BASE + SPIx_DR);
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+/* 送受信が完了し、SPI0がアイドル状態になるまで待つ */
+BOOL spi0_wait_idle(void)
+{
+    UW count;
+
+    for(count = 0U; count < SPI0_TIMEOUT_LOOP; count++){
+        if((in_w(SPI0_BASE + SPIx_SR) & SPI_SR_BSY) == 0U){
             return TRUE;
         }
     }

@@ -630,7 +630,82 @@ Capacity: 4194304 bytes (32 Mbit)
 | メモリ種別 | `0x40` | W25Qシリーズ |
 | 容量ID | `0x16` | 32Mbit（4MByte） |
 
-現段階ではJEDEC IDの読み出しだけを実装しており、フラッシュの書き込みや消去は行いません。
+### ステータスレジスタとWrite Enable
+
+`flashstatus`は、Read Status Register-1命令`0x05`を使って、動作状態と保護ビットを表示します。
+
+```text
+> flashstatus
+SPI flash status register-1: 0x0
+  BUSY=0 WEL=0
+  BP2=0 BP1=0 BP0=0 TB=0 SEC=0 SRP0=0
+```
+
+`BUSY`が1の間は書き込みまたは消去の処理中です。`WEL`はWrite Enable Latchで、Write Enable命令`0x06`によって1になり、Write Disable命令`0x04`によって0へ戻ります。
+
+`flashwen`は、データを変更せずにWrite EnableとWrite Disableを確認します。最後は`WEL=0`の安全な状態へ戻します。
+
+```text
+> flashwen
+Write Enable: WEL=1 BUSY=0
+Write Disable: WEL=0 BUSY=0
+```
+
+書き込みと消去の完了待ちでは、ステータスレジスタを読み出して`BUSY=0`になるまで確認します。BUSY中は`tk_dly_tsk(10)`で10ms待つため、待機中もほかのRTOSタスクを実行できます。
+
+### テスト用セクターの消去
+
+動作確認には、W25Q32の最後の4KBセクターだけを使用します。
+
+```text
+W25Q32全体：0x000000～0x3FFFFF
+テスト領域：0x3FF000～0x3FFFFF
+```
+
+`flasherase confirm`は、Sector Erase命令`0x20`でこの範囲を消去し、4KB全体を読み戻してすべて`0xFF`になったことを確認します。`confirm`がない場合やスペルが異なる場合は消去しません。
+
+> [!WARNING]
+> `flasherase confirm`を実行すると、外付けW25Q32の`0x3FF000`～`0x3FFFFF`に保存されていた内容は失われます。ほかの領域とPico本体のFlashは対象外です。
+
+```text
+> flasherase confirm
+Erasing last 4KB test sector at 0x3ff000...
+Sector erase complete: 0x3ff000-0x3fffff all 0xff
+```
+
+### ページ書き込みと読み戻し照合
+
+`flashwrite confirm`は、テストセクター先頭の22バイトが消去済みの`0xFF`であることを確認してから、Page Program命令`0x02`で次の文字列と終端の`0x00`を書き込みます。
+
+```text
+TryKernel W25Q32 test
+```
+
+書き込み完了後、同じ22バイトを読み戻して元データと1バイトずつ照合します。消去されていない場合は、既存データを保護するため書き込みを中止します。
+
+```text
+> flashwrite confirm
+Programming 22 bytes at 0x3ff000...
+Page program verify complete: TryKernel W25Q32 test
+```
+
+ページ書き込みAPIでは、1回のデータ長を最大256バイトに制限し、書き込みが256バイトのページ境界を越えないことを確認します。
+
+### テストデータの読み出しと電源断確認
+
+`flashread`は、テストセクター先頭の32バイトを16進数とASCIIで表示します。表示できない文字は`.`へ置き換えます。
+
+```text
+> flashread
+SPI flash data at 0x3ff000 (32 bytes):
+  0x3ff000: 54 72 79 4b 65 72 6e 65
+  0x3ff008: 6c 20 57 32 35 51 33 32
+  0x3ff010: 20 74 65 73 74 0 ff ff
+  0x3ff018: ff ff ff ff ff ff ff ff
+ASCII: TryKernel W25Q32 test...........
+```
+
+外付けFlashとPicoの電源を切り、再投入した後にも同じデータを読み出せることを実機で確認しました。これにより、W25Q32への書き込み、読み戻し、不揮発性データ保持まで確認できています。
 
 ## タスク間メッセージ通信
 
@@ -819,6 +894,11 @@ minicom -D /dev/ttyACM0 -b 115200
 | `msgsend` | テストメッセージを受信タスクへ送信 |
 | `msgtest` | FIFO順序、キュー満杯、送受信タイムアウトをテスト |
 | `flashid` | W25QXX SPIフラッシュのJEDEC ID、メーカー、容量を表示 |
+| `flashstatus` | W25QXXのステータスレジスタ1を表示 |
+| `flashwen` | Write EnableとWrite DisableによるWELの変化をテスト |
+| `flasherase confirm` | 末尾の4KBテストセクターを消去して検証 |
+| `flashwrite confirm` | テスト文字列をページ書き込みして読み戻し照合 |
+| `flashread` | 末尾テストセクターの先頭32バイトを表示 |
 | `lcdtest` | Grove RGB LCDへテスト文字列を表示 |
 | `lcdtemp` | ADT7410の温度をLCDへ1回表示 |
 | `lcdcolor R G B` | RGBバックライトを0～255の値で設定 |
@@ -856,6 +936,11 @@ commands:
    msgsend -  send a test message to another task
    msgtest -  test message FIFO, full queue and timeout
    flashid -  show SPI flash JEDEC ID
+   flashstatus -  show SPI flash status register-1
+   flashwen -  test SPI flash Write Enable latch
+   flasherase -  erase last test sector: confirm
+   flashwrite -  write and verify last test sector: confirm
+   flashread -  read first 32 bytes of last test sector
    lcdtest -  test Grove RGB LCD V5.0
    lcdtemp -  show ADT7410 temperature on LCD
    lcdcolor -  set LCD backlight: R G B
@@ -953,7 +1038,9 @@ ADT7410 temperature: 25.313 C
 - UART受信リングバッファの配列サイズは128バイトです。
 - UART送信キューは32件です。
 - UART送信キューの1メッセージは、終端文字を含めて128バイトです。
-- SPI0は約1MHzのポーリング転送で、現在のW25QXX機能はJEDEC ID読み出しのみです。
+- SPI0は約1MHzのポーリング転送です。
+- W25QXXの消去・書き込みテストは、容量から計算した最後の4KBセクターだけを使用します。
+- W25QXXのアドレスは3バイト形式に対応し、16MByte以下のデバイスを対象にしています。
 - 送信文字列は最大127文字で切り詰められます。
 - コンソールの改行入力は、現在CRのみを処理します。
 - `mini_printf()`は機能を限定した独自実装です。
