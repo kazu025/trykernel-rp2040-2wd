@@ -14,6 +14,7 @@
 #include "task_msgtest.h"
 #include "task_motionled.h"
 #include "w25qxx.h"
+#include "task_flashlog.h"
 
 /* --- コマンドバッファ最大数 --- */
 #define CMD_MAX_ARGS    16
@@ -43,6 +44,8 @@ static void cmd_flashwen(int argc, char *argv[]);
 static void cmd_flasherase(int argc, char *argv[]);
 static void cmd_flashwrite(int argc, char *argv[]);
 static void cmd_flashread(int argc, char *argv[]);
+static void cmd_flashlog(int argc, char *argv[]);
+static void cmd_flashlogclear(int argc, char *argv[]);
 static void cmd_lcdtest(int argc, char *argv[]);
 static void cmd_lcdtemp(int argc, char *argv[]);
 static void cmd_lcdcolor(int argc, char *argv[]);
@@ -82,6 +85,8 @@ static const command_t command_table[] = {
     {"flasherase", cmd_flasherase, "erase last test sector: confirm"},
     {"flashwrite", cmd_flashwrite, "write and verify last test sector: confirm"},
     {"flashread", cmd_flashread, "read first 32 bytes of last test sector"},
+    {"flashlog", cmd_flashlog, "show motion history stored in SPI flash"},
+    {"flashlogclear", cmd_flashlogclear, "erase motion history: confirm"},
     {"lcdtest", cmd_lcdtest, "test Grove RGB LCD V5.0"},
     {"lcdtemp", cmd_lcdtemp, "show ADT7410 temperature on LCD"},
     {"lcdcolor", cmd_lcdcolor, "set LCD backlight: R G B"},
@@ -1228,4 +1233,28 @@ static void cmd_flashread(int argc, char *argv[])
     }
     text[sizeof(data)] = '\0';
     uart_tx_printf("ASCII: %s\r\n", text);
+}
+
+static void cmd_flashlog(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    task_flashlog_dump();
+}
+
+static void cmd_flashlogclear(int argc, char *argv[])
+{
+    if((argc != 2) || (str_eq(argv[1], "confirm") == FALSE)){
+        uart_tx_send("usage: flashlogclear confirm\r\n");
+        uart_tx_send("WARNING: erases the 4KB motion history sector\r\n");
+        return;
+    }
+
+    uart_tx_send("Erasing motion flash log sector...\r\n");
+    if(task_flashlog_clear() == FALSE){
+        uart_tx_send("Motion flash log erase error\r\n");
+        return;
+    }
+    uart_tx_send("Motion flash log erase complete\r\n");
 }

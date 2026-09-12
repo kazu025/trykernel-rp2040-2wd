@@ -14,6 +14,19 @@
 #define W25QXX_DUMMY_DATA         0xFFU
 #define W25QXX_BUSY_TIMEOUT_COUNT 1000U
 
+static ID w25qxx_semid;
+
+static BOOL w25qxx_lock(void)
+{
+    if(w25qxx_semid <= 0) return FALSE;
+    return (tk_wai_sem(w25qxx_semid, 1, TMO_FEVR) == E_OK);
+}
+
+static BOOL w25qxx_unlock(void)
+{
+    return (tk_sig_sem(w25qxx_semid, 1) == E_OK);
+}
+
 static BOOL w25qxx_send_command(UB command)
 {
     UB discard;
@@ -32,7 +45,20 @@ void w25qxx_init(void)
     gpio_set(W25QXX_CS_PIN);
 }
 
-BOOL w25qxx_read_jedec_id(w25qxx_jedec_id_t *jedec_id)
+ER w25qxx_sync_init(void)
+{
+    T_CSEM csem = {
+        .sematr = TA_TFIFO | TA_FIRST,
+        .isemcnt = 1,
+        .maxsem = 1,
+    };
+
+    w25qxx_semid = tk_cre_sem(&csem);
+    if(w25qxx_semid < E_OK) return (ER)w25qxx_semid;
+    return E_OK;
+}
+
+static BOOL w25qxx_read_jedec_id_unlocked(w25qxx_jedec_id_t *jedec_id)
 {
     UB discard;
     BOOL result;
@@ -50,7 +76,7 @@ BOOL w25qxx_read_jedec_id(w25qxx_jedec_id_t *jedec_id)
     return result;
 }
 
-BOOL w25qxx_read_status1(UB *status)
+static BOOL w25qxx_read_status1_unlocked(UB *status)
 {
     UB discard;
     BOOL result;
@@ -66,13 +92,13 @@ BOOL w25qxx_read_status1(UB *status)
     return result;
 }
 
-BOOL w25qxx_wait_ready(void)
+static BOOL w25qxx_wait_ready_unlocked(void)
 {
     UB status;
     UW count;
 
     for(count = 0U; count < W25QXX_BUSY_TIMEOUT_COUNT; count++){
-        if(w25qxx_read_status1(&status) == FALSE){
+        if(w25qxx_read_status1_unlocked(&status) == FALSE){
             return FALSE;
         }
         if((status & W25QXX_STATUS1_BUSY) == 0U){
@@ -85,38 +111,38 @@ BOOL w25qxx_wait_ready(void)
     return FALSE;
 }
 
-BOOL w25qxx_write_enable(void)
+static BOOL w25qxx_write_enable_unlocked(void)
 {
     UB status;
 
-    if(w25qxx_wait_ready() == FALSE){
+    if(w25qxx_wait_ready_unlocked() == FALSE){
         return FALSE;
     }
     if(w25qxx_send_command(W25QXX_CMD_WRITE_ENABLE) == FALSE){
         return FALSE;
     }
-    if(w25qxx_read_status1(&status) == FALSE){
+    if(w25qxx_read_status1_unlocked(&status) == FALSE){
         return FALSE;
     }
 
     return ((status & W25QXX_STATUS1_WEL) != 0U);
 }
 
-BOOL w25qxx_write_disable(void)
+static BOOL w25qxx_write_disable_unlocked(void)
 {
     UB status;
 
     if(w25qxx_send_command(W25QXX_CMD_WRITE_DISABLE) == FALSE){
         return FALSE;
     }
-    if(w25qxx_read_status1(&status) == FALSE){
+    if(w25qxx_read_status1_unlocked(&status) == FALSE){
         return FALSE;
     }
 
     return ((status & W25QXX_STATUS1_WEL) == 0U);
 }
 
-BOOL w25qxx_read(UW address, UB *data, UINT size)
+static BOOL w25qxx_read_unlocked(UW address, UB *data, UINT size)
 {
     UB discard;
     UINT i;
@@ -147,7 +173,7 @@ BOOL w25qxx_read(UW address, UB *data, UINT size)
     return result;
 }
 
-BOOL w25qxx_sector_erase(UW address)
+static BOOL w25qxx_sector_erase_unlocked(UW address)
 {
     UB discard;
     BOOL result;
@@ -156,7 +182,7 @@ BOOL w25qxx_sector_erase(UW address)
             || ((address & (W25QXX_SECTOR_SIZE - 1U)) != 0U)){
         return FALSE;
     }
-    if(w25qxx_write_enable() == FALSE){
+    if(w25qxx_write_enable_unlocked() == FALSE){
         return FALSE;
     }
 
@@ -169,14 +195,17 @@ BOOL w25qxx_sector_erase(UW address)
     gpio_set(W25QXX_CS_PIN);
 
     if(result == FALSE){
-        (void)w25qxx_write_disable();
+        (void)w25qxx_write_disable_unlocked();
         return FALSE;
     }
 
-    return w25qxx_wait_ready();
+    return w25qxx_wait_ready_unlocked();
 }
 
-BOOL w25qxx_page_program(UW address, const UB *data, UINT size)
+static BOOL w25qxx_page_program_unlocked(
+    UW address,
+    const UB *data,
+    UINT size)
 {
     UB discard;
     UINT i;
@@ -195,7 +224,7 @@ BOOL w25qxx_page_program(UW address, const UB *data, UINT size)
     if((size - 1U) > (0x00FFFFFFU - address)){
         return FALSE;
     }
-    if(w25qxx_write_enable() == FALSE){
+    if(w25qxx_write_enable_unlocked() == FALSE){
         return FALSE;
     }
 
@@ -215,11 +244,60 @@ BOOL w25qxx_page_program(UW address, const UB *data, UINT size)
     gpio_set(W25QXX_CS_PIN);
 
     if(result == FALSE){
-        (void)w25qxx_write_disable();
+        (void)w25qxx_write_disable_unlocked();
         return FALSE;
     }
 
-    return w25qxx_wait_ready();
+    return w25qxx_wait_ready_unlocked();
+}
+
+#define W25QXX_LOCKED_CALL(expression) \
+    do { \
+        BOOL result; \
+        if(w25qxx_lock() == FALSE) return FALSE; \
+        result = (expression); \
+        if(w25qxx_unlock() == FALSE) return FALSE; \
+        return result; \
+    } while(0)
+
+BOOL w25qxx_read_jedec_id(w25qxx_jedec_id_t *jedec_id)
+{
+    W25QXX_LOCKED_CALL(w25qxx_read_jedec_id_unlocked(jedec_id));
+}
+
+BOOL w25qxx_read_status1(UB *status)
+{
+    W25QXX_LOCKED_CALL(w25qxx_read_status1_unlocked(status));
+}
+
+BOOL w25qxx_wait_ready(void)
+{
+    W25QXX_LOCKED_CALL(w25qxx_wait_ready_unlocked());
+}
+
+BOOL w25qxx_write_enable(void)
+{
+    W25QXX_LOCKED_CALL(w25qxx_write_enable_unlocked());
+}
+
+BOOL w25qxx_write_disable(void)
+{
+    W25QXX_LOCKED_CALL(w25qxx_write_disable_unlocked());
+}
+
+BOOL w25qxx_read(UW address, UB *data, UINT size)
+{
+    W25QXX_LOCKED_CALL(w25qxx_read_unlocked(address, data, size));
+}
+
+BOOL w25qxx_sector_erase(UW address)
+{
+    W25QXX_LOCKED_CALL(w25qxx_sector_erase_unlocked(address));
+}
+
+BOOL w25qxx_page_program(UW address, const UB *data, UINT size)
+{
+    W25QXX_LOCKED_CALL(w25qxx_page_program_unlocked(address, data, size));
 }
 
 const char *w25qxx_manufacturer_name(UB manufacturer_id)
