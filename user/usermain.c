@@ -11,6 +11,7 @@
 #include "task_motionled.h"
 #include "spi.h"
 #include "w25qxx.h"
+#include "task_flashlog.h"
 
 /*
  * タスク優先度:1〜16
@@ -25,6 +26,7 @@
 #define PRIORITY_MPUIRQ      9
 #define PRIORITY_MSGTEST     7
 #define PRIORITY_MOTIONLED   13
+#define PRIORITY_FLASHLOG     3
 /*
  * stack size
  */
@@ -37,6 +39,7 @@
 #define STACK_MPUIRQ    1024
 #define STACK_MSGTEST   1024
 #define STACK_MOTIONLED 1024
+#define STACK_FLASHLOG  1024
 /*
  * tk_set_flg() scheduler呼び出し確認用
  */
@@ -228,6 +231,16 @@ T_CTSK ctsk_motionled = {
     .bufptr     = tskstk_motionled,
 };
 
+UW tskstk_flashlog[STACK_FLASHLOG/sizeof(UW)];
+ID tskid_flashlog;
+T_CTSK ctsk_flashlog = {
+    .tskatr     = TA_HLNG | TA_RNG3 | TA_USERBUF,
+    .task       = task_flashlog,
+    .itskpri    = PRIORITY_FLASHLOG,
+    .stksz      = STACK_FLASHLOG,
+    .bufptr     = tskstk_flashlog,
+};
+
 
 int usermain(void)
 {
@@ -237,6 +250,10 @@ int usermain(void)
     spi0_init();   // SPI0初期化
     w25qxx_init(); // W25QXXのCS初期化
     ercd = i2c0_sync_init();
+    if(ercd < E_OK){
+        return (int)ercd;
+    }
+    ercd = w25qxx_sync_init();
     if(ercd < E_OK){
         return (int)ercd;
     }
@@ -276,6 +293,10 @@ int usermain(void)
     if(ercd < E_OK){
         return (int)ercd;
     }
+    ercd = task_flashlog_init();
+    if(ercd < E_OK){
+        return (int)ercd;
+    }
     tk_dly_tsk(5);
     uart_tx_send("Hello Try Kernel\r\n");
 
@@ -285,6 +306,12 @@ int usermain(void)
         return (int)tskid_uarttx;
     }
     tk_sta_tsk(tskid_uarttx, 0);
+
+    tskid_flashlog = tk_cre_tsk(&ctsk_flashlog);
+    if(tskid_flashlog < E_OK){
+        return (int)tskid_flashlog;
+    }
+    tk_sta_tsk(tskid_flashlog, 0);
 
     /* LED制御タスク1の生成、実行 */
     tskid_led1 = tk_cre_tsk(&ctsk_led1);

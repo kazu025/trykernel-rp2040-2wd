@@ -88,6 +88,9 @@ Pico SDKは使用せず、RP2040のレジスタを直接操作しています。
 - メッセージ送受信タスクとUARTテストコマンド
 - SPI0のレジスタレベル・ドライバ
 - W25QXX SPIフラッシュのJEDEC ID読み出し
+- W25QXXの消去、ページ書き込み、読み戻し照合
+- メッセージキューと専用タスクによるモーション履歴の不揮発保存
+- バイナリセマフォによるW25QXXのタスク間排他制御
 
 ## UARTの構成
 
@@ -707,6 +710,73 @@ ASCII: TryKernel W25Q32 test...........
 
 外付けFlashとPicoの電源を切り、再投入した後にも同じデータを読み出せることを実機で確認しました。これにより、W25Q32への書き込み、読み戻し、不揮発性データ保持まで確認できています。
 
+### モーション検出履歴の保存
+
+MPUのモーション状態が`MOVING`または`STOPPED`へ変化したとき、MPU割り込み処理タスクからFlash履歴タスクへ固定長メッセージを送信します。Flash履歴タスクはメッセージが届くまでWAIT状態になり、受信後にW25Q32へ履歴を追記します。
+
+```text
+MPU Data Ready割り込み
+   ↓
+MPU割り込み処理タスク
+   ↓ MOVING／STOPPEDとサンプル番号
+固定長メッセージキュー（最大8件）
+   ↓
+Flash履歴タスク
+   ↓
+W25Q32へ書き込み・読み戻し照合
+```
+
+履歴領域と従来の読み書きテスト領域は、別の4KBセクターに分けています。
+
+```text
+W25Q32全体：       0x000000～0x3FFFFF
+モーション履歴：  0x3FE000～0x3FEFFF
+読み書きテスト：  0x3FF000～0x3FFFFF
+```
+
+1件の履歴は16バイトで、1セクターに最大256件保存できます。
+
+```c
+typedef struct {
+    UW magic;          /* モーション履歴の識別値 */
+    UW sequence;       /* 履歴の連番 */
+    UW sample_count;   /* MPUデータを取得した回数 */
+    UB event;          /* MOVINGまたはSTOPPED */
+    UB reserved[3];    /* 将来の拡張用 */
+} FLASHLOG_RECORD;
+```
+
+`sample_count`はMPUデータの取得回数です。現在の取得周期は10Hzなので、同じ起動中であればサンプル番号の差を10で割ることで、おおよその経過秒数を求められます。Picoを再起動するとサンプル番号は0から始まりますが、Flash内の履歴と連番は保持されます。
+
+`flashlog`コマンドは保存済みの履歴を表示します。書き込み後には同じ16バイトを読み戻して照合し、失敗回数とメッセージキューの取りこぼし回数も管理します。
+
+```text
+> flashlog
+Motion flash log: address=0x3fe000 records=9/256
+  1: sample=432 event=STOPPED
+  2: sample=506 event=MOVING
+  3: sample=571 event=STOPPED
+  4: sample=1447 event=MOVING
+  5: sample=1475 event=STOPPED
+  6: sample=1545 event=MOVING
+  7: sample=1555 event=STOPPED
+  8: sample=1731 event=MOVING
+  9: sample=1760 event=STOPPED
+Flash log errors: write=0 queue_overflow=0
+```
+
+電源を再投入した後にも同じ9件を読み出せることを実機で確認しました。
+
+履歴領域を消去する場合は、誤操作防止のため`confirm`を付けます。この操作では`0x3FE000`の履歴用セクターだけを消去し、`0x3FF000`の読み書きテストデータには影響しません。
+
+```text
+> flashlogclear confirm
+Erasing motion flash log sector...
+Motion flash log erase complete
+```
+
+UARTコマンドとFlash履歴タスクが同時にW25Q32へアクセスしないよう、W25QXXドライバはバイナリセマフォで一連のFlash操作を排他制御します。FlashのBUSY待ちでは履歴タスクを遅延状態にするため、書き込み完了待ちの間もほかのタスクを実行できます。
+
 ## タスク間メッセージ通信
 
 固定サイズのデータをタスク間で受け渡す、FIFO方式のメッセージキューを実装しています。
@@ -899,6 +969,8 @@ minicom -D /dev/ttyACM0 -b 115200
 | `flasherase confirm` | 末尾の4KBテストセクターを消去して検証 |
 | `flashwrite confirm` | テスト文字列をページ書き込みして読み戻し照合 |
 | `flashread` | 末尾テストセクターの先頭32バイトを表示 |
+| `flashlog` | W25QXXに保存したモーション履歴とエラー回数を表示 |
+| `flashlogclear confirm` | モーション履歴用4KBセクターを消去して検証 |
 | `lcdtest` | Grove RGB LCDへテスト文字列を表示 |
 | `lcdtemp` | ADT7410の温度をLCDへ1回表示 |
 | `lcdcolor R G B` | RGBバックライトを0～255の値で設定 |
@@ -941,6 +1013,8 @@ commands:
    flasherase -  erase last test sector: confirm
    flashwrite -  write and verify last test sector: confirm
    flashread -  read first 32 bytes of last test sector
+   flashlog -  show motion history stored in SPI flash
+   flashlogclear -  erase motion history: confirm
    lcdtest -  test Grove RGB LCD V5.0
    lcdtemp -  show ADT7410 temperature on LCD
    lcdcolor -  set LCD backlight: R G B
@@ -1040,6 +1114,8 @@ ADT7410 temperature: 25.313 C
 - UART送信キューの1メッセージは、終端文字を含めて128バイトです。
 - SPI0は約1MHzのポーリング転送です。
 - W25QXXの消去・書き込みテストは、容量から計算した最後の4KBセクターだけを使用します。
+- W25QXXのモーション履歴は最後から2番目の4KBセクターを使用し、最大256件です。
+- W25QXXへのタスク間アクセスはバイナリセマフォで排他制御しています。
 - W25QXXのアドレスは3バイト形式に対応し、16MByte以下のデバイスを対象にしています。
 - 送信文字列は最大127文字で切り詰められます。
 - コンソールの改行入力は、現在CRのみを処理します。

@@ -21,6 +21,7 @@ typedef struct {
 #define W25QXX_PAGE_SIZE      256U
 
 void w25qxx_init(void);
+ER w25qxx_sync_init(void);
 BOOL w25qxx_read_jedec_id(w25qxx_jedec_id_t *jedec_id);
 BOOL w25qxx_read_status1(UB *status);
 BOOL w25qxx_wait_ready(void);

@@ -3,6 +3,7 @@
 #include "mpu6050.h"
 #include "task_mpuirq.h"
 #include "task_motionled.h"
+#include "task_flashlog.h"
 #include "uart_tx.h"
 
 #define MPU_INT_PIN          6U
@@ -71,6 +72,8 @@ static void motion_update(const mpu6050_raw_data_t *raw_data)
             motion_detected = TRUE;
             task_motionled_set_moving();
             uart_tx_send("Motion: MOVING\r\n");
+            (void)task_flashlog_notify(
+                FLASHLOG_EVENT_MOVING, mpu_sample_count);
         }
     }else{
         motion_active_count = 0U;
@@ -82,6 +85,8 @@ static void motion_update(const mpu6050_raw_data_t *raw_data)
             motion_detected = FALSE;
             task_motionled_set_still();
             uart_tx_send("Motion: STOPPED\r\n");
+            (void)task_flashlog_notify(
+                FLASHLOG_EVENT_STOPPED, mpu_sample_count);
         }
     }
 }
@@ -122,6 +127,7 @@ void task_mpuirq_motion_start(long long accel_magnitude_squared)
     motion_still_count = 0U;
     motion_enabled = TRUE;
     task_motionled_set_still();
+    (void)task_flashlog_notify(FLASHLOG_EVENT_STOPPED, mpu_sample_count);
 }
 
 void task_mpuirq_motion_stop(void)
