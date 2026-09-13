@@ -12,6 +12,7 @@
 #include "spi.h"
 #include "w25qxx.h"
 #include "task_flashlog.h"
+#include "task_inapower.h"
 
 /*
  * タスク優先度:1〜16
@@ -27,6 +28,7 @@
 #define PRIORITY_MSGTEST     7
 #define PRIORITY_MOTIONLED   13
 #define PRIORITY_FLASHLOG     3
+#define PRIORITY_INAPOWER    10
 /*
  * stack size
  */
@@ -40,6 +42,7 @@
 #define STACK_MSGTEST   1024
 #define STACK_MOTIONLED 1024
 #define STACK_FLASHLOG  1024
+#define STACK_INAPOWER  1024
 /*
  * tk_set_flg() scheduler呼び出し確認用
  */
@@ -241,6 +244,16 @@ T_CTSK ctsk_flashlog = {
     .bufptr     = tskstk_flashlog,
 };
 
+UW tskstk_inapower[STACK_INAPOWER/sizeof(UW)];
+ID tskid_inapower;
+T_CTSK ctsk_inapower = {
+    .tskatr     = TA_HLNG | TA_RNG3 | TA_USERBUF,
+    .task       = task_inapower,
+    .itskpri    = PRIORITY_INAPOWER,
+    .stksz      = STACK_INAPOWER,
+    .bufptr     = tskstk_inapower,
+};
+
 
 int usermain(void)
 {
@@ -297,6 +310,7 @@ int usermain(void)
     if(ercd < E_OK){
         return (int)ercd;
     }
+    task_inapower_init();
     tk_dly_tsk(5);
     uart_tx_send("Hello Try Kernel\r\n");
 
@@ -312,6 +326,12 @@ int usermain(void)
         return (int)tskid_flashlog;
     }
     tk_sta_tsk(tskid_flashlog, 0);
+
+    tskid_inapower = tk_cre_tsk(&ctsk_inapower);
+    if(tskid_inapower < E_OK){
+        return (int)tskid_inapower;
+    }
+    tk_sta_tsk(tskid_inapower, 0);
 
     /* LED制御タスク1の生成、実行 */
     tskid_led1 = tk_cre_tsk(&ctsk_led1);
