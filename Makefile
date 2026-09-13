@@ -65,6 +65,7 @@ C_SRCS  := \
 	user/task_msgtest.c \
 	user/task_motionled.c \
 	user/task_flashlog.c \
+	user/task_inapower.c \
 	user/task_uartrx.c \
 	user/usermain.c \
 	user/command.c \
@@ -76,6 +77,7 @@ C_SRCS  := \
 	user/mini_printf.c \
 	drivers/gpio.c \
 	drivers/adt7410.c \
+	drivers/ina226.c \
 	drivers/mpu6050.c \
 	drivers/w25qxx.c \
 	drivers/grove_lcd.c \

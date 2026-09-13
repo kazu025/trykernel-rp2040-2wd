@@ -78,6 +78,9 @@ Pico SDKは使用せず、RP2040のレジスタを直接操作しています。
 - I2Cエラー回数、復旧回数、直近エラーの診断情報
 - ADT7410温度センサードライバ
 - ADT7410温度取得コマンド
+- INA226電力モニタードライバ
+- INA226によるバス電圧、シャント電圧、電流、電力の測定
+- INA226の1秒周期計測タスク
 - Grove RGB LCD Backlight V5.0ドライバ
 - ADT7410温度のLCD周期表示タスク
 - UARTコマンドによるRGBバックライト色設定
@@ -574,6 +577,66 @@ I2C error count: 0
 I2C recovery count: 0
 ```
 
+## INA226電力モニター
+
+I2Cアドレス`0x40`のINA226を使用し、Picoと接続機器へ供給される電圧、電流、電力を測定します。モジュール上の`R100`（0.1Ω）をシャント抵抗として使用しています。
+
+| INA226モジュール | Raspberry Pi Pico／測定回路 | 役割 |
+|---|---|---|
+| `VCC` | 3V3(OUT) | INA226の動作用電源 |
+| `GND` | Pico GND、外部電源GND | 共通GND |
+| `SCL` | GPIO5 | I2Cクロック |
+| `SDA` | GPIO4 | I2Cデータ |
+| `IN+` | 外部5Vのプラス側 | シャント抵抗の電源側 |
+| `IN-` | Pico VSYS | シャント抵抗の負荷側 |
+| `VBS` | `IN-` | バス電圧測定入力 |
+| `ALE` | 未接続 | 今回は未使用 |
+
+```text
+外部5V+ → IN+ → R100（0.1Ω）→ IN- → Pico VSYS
+                              └── VBS
+
+外部GND ─┬─ INA226 GND
+          └─ Pico GND
+```
+
+Manufacturer IDレジスタ`0xFE`とDie IDレジスタ`0xFF`は16ビット・ビッグエンディアン形式で読み出します。実機では`0x5449`（Texas Instruments）と`0x2260`（INA226）を確認しました。
+
+```text
+> inaid
+INA226 Manufacturer ID: 0x5449
+INA226 Die ID: 0x2260
+  device: INA226
+```
+
+バス電圧レジスタ`0x02`は1LSBが1.25mVです。浮動小数点を使わず、`raw × 5 ÷ 4`でmVへ換算します。
+
+シャント電圧レジスタ`0x01`は符号付き16ビットで、1LSBが2.5µVです。R100（0.1Ω）では1LSBが25µAに相当するため、`raw × 25`でµAへ換算します。
+
+```text
+> inabus
+INA226 bus voltage raw: 0xfd1
+INA226 bus voltage: 5061 mV
+> inashunt
+INA226 shunt voltage raw: 2634
+INA226 shunt voltage: 6585 uV
+INA226 current: 65850 uA
+```
+
+INA226周期計測タスクは、1秒ごとにバス電圧とシャント電圧を読み、最新の電圧、電流、電力を共有データとして保持します。測定中以外は`tk_dly_tsk(1000)`でWAIT状態になるため、CPUをほかのタスクへ渡します。
+
+`inapower`コマンドはINA226へ直接アクセスせず、周期タスクが保持している同じ測定回の値をまとめて取得します。共有データの更新と取得は短い割り込み禁止区間で保護し、異なる測定回の値が混ざらないようにしています。
+
+```text
+> inapower
+INA226 periodic measurement: sample=61 errors=0
+INA226 bus voltage: 5058 mV
+INA226 current: 67575 uA
+INA226 power: 341 mW
+```
+
+`sample`は周期測定に成功した回数、`errors`はI2C読み出しに失敗した回数です。電力は64ビット整数を使い、`mV × µA ÷ 1,000,000`でmWへ換算します。
+
 ## SPIフラッシュメモリ
 
 RP2040のSPI0コントローラをレジスタから直接設定し、W25QXX SPIフラッシュメモリを接続します。現在はSPI Mode 0、8ビット、約1MHzのポーリング方式です。
@@ -955,6 +1018,10 @@ minicom -D /dev/ttyACM0 -b 115200
 | `adtinfo` | ADT7410のIDと設定を表示 |
 | `adtconfig 13\|16` | ADT7410の温度分解能を切り替え |
 | `adtraw` | ADT7410の温度生データを表示 |
+| `inaid` | INA226のManufacturer IDとDie IDを表示 |
+| `inabus` | INA226のバス電圧の生データとmV換算値を表示 |
+| `inashunt` | INA226のシャント電圧、電流を表示 |
+| `inapower` | INA226周期タスクの最新電圧、電流、電力を表示 |
 | `mpuid` | MPUセンサーのWHO_AM_Iと機種を表示 |
 | `mpuraw` | MPUセンサーの加速度・温度・ジャイロ生データを表示 |
 | `mpu` | MPUセンサーの値をg、dps、℃へ換算して表示 |
@@ -1128,6 +1195,8 @@ ADT7410 temperature: 25.313 C
 - I2CはI2C0、GPIO4／GPIO5、100kHz固定です。
 - `i2cscan`は7ビットアドレスだけに対応しています。
 - I2Cトランザクションはバイナリセマフォでタスク間排他制御しています。
+- INA226はI2Cアドレス`0x40`、シャント抵抗0.1Ωとして換算しています。
+- INA226周期計測タスクの測定間隔は1秒です。
 - `i2cscan`は現在接続しているデバイスに合わせて、`0x00`の1バイト書き込みでACKを確認します。
 - ADT7410はI2Cアドレス`0x48`、デフォルト13ビットモードで使用しています。
 - `temperature`コマンドは浮動小数点演算を使用せず、ミリ℃単位の整数で温度を処理します。

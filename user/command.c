@@ -7,6 +7,7 @@
 #include "gpio.h"
 #include "i2c.h"
 #include "adt7410.h"
+#include "ina226.h"
 #include "mpu6050.h"
 #include "grove_lcd.h"
 #include "task_lcdtemp.h"
@@ -15,6 +16,7 @@
 #include "task_motionled.h"
 #include "w25qxx.h"
 #include "task_flashlog.h"
+#include "task_inapower.h"
 
 /* --- コマンドバッファ最大数 --- */
 #define CMD_MAX_ARGS    16
@@ -30,6 +32,10 @@ static void cmd_temperature(int argc, char *argv[]);
 static void cmd_adtinfo(int argc, char *argv[]);
 static void cmd_adtconfig(int argc, char *argv[]);
 static void cmd_adtraw(int argc, char *argv[]);
+static void cmd_inaid(int argc, char *argv[]);
+static void cmd_inabus(int argc, char *argv[]);
+static void cmd_inashunt(int argc, char *argv[]);
+static void cmd_inapower(int argc, char *argv[]);
 static void cmd_mpuid(int argc, char *argv[]);
 static void cmd_mpuraw(int argc, char *argv[]);
 static void cmd_mpu(int argc, char *argv[]);
@@ -71,6 +77,10 @@ static const command_t command_table[] = {
     {"adtinfo", cmd_adtinfo, "show ADT7410 ID and configuration"},
     {"adtconfig", cmd_adtconfig, "set ADT7410 resolution: 13|16"},
     {"adtraw", cmd_adtraw, "show ADT7410 raw temperature data"},
+    {"inaid", cmd_inaid, "show INA226 manufacturer and die IDs"},
+    {"inabus", cmd_inabus, "show INA226 bus voltage"},
+    {"inashunt", cmd_inashunt, "show INA226 shunt voltage and current"},
+    {"inapower", cmd_inapower, "show INA226 voltage, current and power"},
     {"mpuid", cmd_mpuid, "show MPU-6050 WHO_AM_I"},
     {"mpuraw", cmd_mpuraw, "show MPU-6050 raw sensor data"},
     {"mpu", cmd_mpu, "show acceleration, gyro and temperature"},
@@ -431,6 +441,96 @@ static void cmd_adtraw(int argc, char *argv[])
             (raw_temperature >> 2) & 0x01U
         );
     }
+}
+
+static void cmd_inaid(int argc, char *argv[])
+{
+    UINT manufacturer_id;
+    UINT die_id;
+
+    (void)argc;
+    (void)argv;
+
+    if(ina226_read_ids(&manufacturer_id, &die_id) == FALSE){
+        uart_tx_send("INA226 identification read error\r\n");
+        return;
+    }
+
+    uart_tx_printf("INA226 Manufacturer ID: 0x%x\r\n", manufacturer_id);
+    uart_tx_printf("INA226 Die ID: 0x%x\r\n", die_id);
+
+    if((manufacturer_id == INA226_EXPECTED_MANUFACTURER_ID)
+            && (die_id == INA226_EXPECTED_DIE_ID)){
+        uart_tx_send("  device: INA226\r\n");
+    }else{
+        uart_tx_send("  unexpected device ID\r\n");
+    }
+}
+
+static void cmd_inabus(int argc, char *argv[])
+{
+    UINT raw_value;
+    UW voltage_mv;
+
+    (void)argc;
+    (void)argv;
+
+    if(ina226_read_bus_voltage(&raw_value, &voltage_mv) == FALSE){
+        uart_tx_send("INA226 bus voltage read error\r\n");
+        return;
+    }
+
+    uart_tx_printf("INA226 bus voltage raw: 0x%x\r\n", raw_value);
+    uart_tx_printf("INA226 bus voltage: %u mV\r\n", (UINT)voltage_mv);
+}
+
+static void cmd_inashunt(int argc, char *argv[])
+{
+    INT raw_value;
+    INT shunt_voltage_uv;
+    INT current_ua;
+
+    (void)argc;
+    (void)argv;
+
+    if(ina226_read_shunt(
+            &raw_value, &shunt_voltage_uv, &current_ua) == FALSE){
+        uart_tx_send("INA226 shunt voltage read error\r\n");
+        return;
+    }
+
+    uart_tx_printf("INA226 shunt voltage raw: %d\r\n", raw_value);
+    uart_tx_printf("INA226 shunt voltage: %d uV\r\n", shunt_voltage_uv);
+    uart_tx_printf("INA226 current: %d uA\r\n", current_ua);
+}
+
+static void cmd_inapower(int argc, char *argv[])
+{
+    INA226_MEASUREMENT measurement;
+    UW error_count;
+
+    (void)argc;
+    (void)argv;
+
+    if(task_inapower_get(&measurement, &error_count) == FALSE){
+        uart_tx_printf(
+            "INA226 periodic measurement is not ready (errors=%u)\r\n",
+            (UINT)error_count
+        );
+        return;
+    }
+
+    uart_tx_printf(
+        "INA226 periodic measurement: sample=%u errors=%u\r\n",
+        (UINT)measurement.sample_count,
+        (UINT)error_count
+    );
+    uart_tx_printf(
+        "INA226 bus voltage: %u mV\r\n",
+        (UINT)measurement.bus_voltage_mv
+    );
+    uart_tx_printf("INA226 current: %d uA\r\n", measurement.current_ua);
+    uart_tx_printf("INA226 power: %d mW\r\n", measurement.power_mw);
 }
 
 static void cmd_mpuid(int argc, char *argv[])
