@@ -25,8 +25,8 @@
 
 #define I2C0_TIMEOUT_LOOP   100000U
 
-/* I2C0排他制御用バイナリセマフォ */
-static ID i2c0_sync_semid;
+/* I2C0排他制御用FIFOミューテックス */
+static ID i2c0_sync_mtxid;
 static volatile UW i2c0_error_count;
 static volatile UW i2c0_recovery_count;
 static volatile UB i2c0_last_error_address;
@@ -55,7 +55,7 @@ static void i2c0_recovery_delay(void)
 
 /*
  * SDAを保持したスレーブを解放するためSCLを9回動かし、STOPを生成する。
- * 呼び出し側でI2Cセマフォを取得していること。
+ * 呼び出し側でI2Cミューテックスを取得していること。
  */
 static void i2c0_bus_recover_unlocked(void)
 {
@@ -95,10 +95,8 @@ static void i2c0_bus_recover_unlocked(void)
  */
 ER i2c0_sync_init(void)
 {
-    T_CSEM csem = {
-        .sematr = TA_TFIFO | TA_FIRST,
-        .isemcnt = 1,
-        .maxsem = 1,
+    T_CMTX cmtx = {
+        .mtxatr = TA_TFIFO,
     };
 
     i2c0_error_count = 0U;
@@ -108,9 +106,9 @@ ER i2c0_sync_init(void)
     i2c0_last_error_stage = 0U;
     i2c0_last_abort_source = 0U;
     i2c0_current_abort_source = 0U;
-    i2c0_sync_semid = tk_cre_sem(&csem);
-    if(i2c0_sync_semid < E_OK){
-        return (ER)i2c0_sync_semid;
+    i2c0_sync_mtxid = tk_cre_mtx(&cmtx);
+    if(i2c0_sync_mtxid < E_OK){
+        return (ER)i2c0_sync_mtxid;
     }
 
     return E_OK;
@@ -148,16 +146,15 @@ UW i2c0_last_abort_source_get(void)
 
 static BOOL i2c0_sync_lock(void)
 {
-    return (tk_wai_sem(
-        i2c0_sync_semid,
-        1,
+    return (tk_loc_mtx(
+        i2c0_sync_mtxid,
         TMO_FEVR
     ) == E_OK);
 }
 
 static BOOL i2c0_sync_unlock(void)
 {
-    return (tk_sig_sem(i2c0_sync_semid, 1) == E_OK);
+    return (tk_unl_mtx(i2c0_sync_mtxid) == E_OK);
 }
 
 /*

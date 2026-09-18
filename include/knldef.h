@@ -22,6 +22,7 @@ typedef enum {
     TWFCT_FLG   = 3,    // tk_wai_flgによるフラグ待ち
     TWFCT_SEM   = 4,    // tk_wai_semによる資源待ち
     TWFCT_SND_MSGQ = 5, // tk_snd_msgqによる送信待ち
+    TWFCT_MTX = 7,      // tk_loc_mtxによるロック待ち
     TWFCT_RCV_MSGQ = 6, // tk_rcv_msgqによる受信待ち
 } TWFCT;
 
@@ -106,6 +107,14 @@ typedef struct semaphore_control_block {
     INT     semcnt;     // セマフォ値
     INT     maxsem;     // セマフォ最大値
 } SEMCB;
+
+/* ミューテックス管理情報。owner == NULLなら未ロック。 */
+typedef struct {
+    KSSTAT state;
+    TCB *owner;
+} MTXCB;
+/* 割込み禁止下で呼ぶ。呼び出し側が最後にscheduler()を実行する。 */
+extern void mutex_release_all(TCB *owner);
 
 /* 固定長メッセージキュー管理情報(MSGQCB) */
 typedef struct message_queue_control_block {

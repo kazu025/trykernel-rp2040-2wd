@@ -49,6 +49,7 @@ C_SRCS  := \
 	kernel/eventflag.c \
 	kernel/inittsk.c \
 	kernel/message_queue.c \
+	kernel/mutex.c \
 	kernel/scheduler.c \
 	kernel/systimer.c \
 	kernel/semaphore.c \
@@ -151,3 +152,13 @@ clean:
 	rm -rf $(BUILD)
 
 -include $(DEPS)
+
+# Host tests run kernel logic with interrupt/context switching mocked.
+HOSTCC ?= cc
+.PHONY: test-mutex
+test-mutex:
+	@mkdir -p $(BUILD)/tests
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -Itests/host -Iinclude \
+		tests/host/mutex_test.c kernel/mutex.c kernel/task_queue.c \
+		kernel/systimer.c kernel/task_mange.c -o $(BUILD)/tests/mutex_test
+	$(BUILD)/tests/mutex_test
