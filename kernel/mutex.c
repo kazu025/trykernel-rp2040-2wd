@@ -1,41 +1,109 @@
-/* FIFO mutex: ownership and direct handoff, without priority inheritance. */
+/* Mutex with strict, dynamic priority inheritance. */
 #include <trykernel.h>
 #include <knldef.h>
 
 static MTXCB mtxcb_tbl[CNF_MAX_MTXID];
+static PRI calculated_priority[CNF_MAX_TSKID];
 
-/* Called with interrupts disabled. Transfer ownership before making READY. */
-static void release_mutex(INT index)
+static INT task_index(const TCB *tcb)
 {
-    TCB *tcb;
-    mtxcb_tbl[index].owner = NULL;
-    for(tcb = wait_queue; tcb != NULL; tcb = tcb->next) {
-        if(tcb->waifct != TWFCT_MTX || tcb->waiobj != index) continue;
-        mtxcb_tbl[index].owner = tcb;
-        tqueue_remove_entry(&wait_queue, tcb);
-        tcb->state = TS_READY;
-        tcb->waifct = TWFCT_NON;
-        *tcb->waierr = E_OK;
-        tqueue_add_entry(&ready_queue[PRI_INDEX(tcb->itskpri)], tcb);
-        break;
+    return (INT)(tcb - tcb_tbl);
+}
+
+/* Recalculate priorities from the base priorities and the mutex wait graph. */
+static void recalculate_priorities(void)
+{
+    BOOL changed;
+    INT i, pass;
+    TCB *waiter;
+
+    for(i = 0; i < CNF_MAX_TSKID; i++) {
+        calculated_priority[i] = tcb_tbl[i].btskpri;
+    }
+
+    /* Repeated scans propagate inheritance through nested mutex waits. */
+    for(pass = 0; pass < CNF_MAX_TSKID; pass++) {
+        changed = FALSE;
+        for(i = 0; i < CNF_MAX_MTXID; i++) {
+            INT owner_index;
+            if(mtxcb_tbl[i].state != KS_EXIST ||
+               mtxcb_tbl[i].attr != TA_INHERIT ||
+               mtxcb_tbl[i].owner == NULL) {
+                continue;
+            }
+            owner_index = task_index(mtxcb_tbl[i].owner);
+            for(waiter = wait_queue; waiter != NULL; waiter = waiter->next) {
+                INT waiter_index;
+                if(waiter->waifct != TWFCT_MTX || waiter->waiobj != i) continue;
+                waiter_index = task_index(waiter);
+                if(calculated_priority[waiter_index] < calculated_priority[owner_index]) {
+                    calculated_priority[owner_index] = calculated_priority[waiter_index];
+                    changed = TRUE;
+                }
+            }
+        }
+        if(changed == FALSE) break;
+    }
+
+    for(i = 0; i < CNF_MAX_TSKID; i++) {
+        TCB *tcb = &tcb_tbl[i];
+        PRI oldpri;
+        if(tcb->state == TS_NONEXIST ||
+           tcb->itskpri == calculated_priority[i]) continue;
+        oldpri = tcb->itskpri;
+        if(tcb->state == TS_READY) {
+            tqueue_remove_entry(&ready_queue[PRI_INDEX(oldpri)], tcb);
+        }
+        tcb->itskpri = calculated_priority[i];
+        if(tcb->state == TS_READY) {
+            tqueue_add_entry(&ready_queue[PRI_INDEX(tcb->itskpri)], tcb);
+        }
     }
 }
-/*
- * @brief Create a mutex
- * @param pk_cmtx Pointer to the mutex attribute structure
- * @return Mutex ID if successful, otherwise an error code
- */
+
+/* FIFO for TA_TFIFO; highest current priority for TA_INHERIT. */
+static TCB *select_waiter(INT index)
+{
+    TCB *tcb;
+    TCB *selected = NULL;
+    for(tcb = wait_queue; tcb != NULL; tcb = tcb->next) {
+        if(tcb->waifct != TWFCT_MTX || tcb->waiobj != index) continue;
+        if(selected == NULL ||
+           (mtxcb_tbl[index].attr == TA_INHERIT &&
+            tcb->itskpri < selected->itskpri)) {
+            selected = tcb;
+        }
+    }
+    return selected;
+}
+
+/* Transfer ownership before making the selected waiter READY. */
+static void release_mutex(INT index)
+{
+    TCB *tcb = select_waiter(index);
+    mtxcb_tbl[index].owner = tcb;
+    if(tcb == NULL) return;
+    tqueue_remove_entry(&wait_queue, tcb);
+    tcb->state = TS_READY;
+    tcb->waifct = TWFCT_NON;
+    *tcb->waierr = E_OK;
+    tqueue_add_entry(&ready_queue[PRI_INDEX(tcb->itskpri)], tcb);
+}
+
 ID tk_cre_mtx(const T_CMTX *pk_cmtx)
 {
     UINT intsts;
     ID index;
     if(is_interrupt_context()) return E_CTX;
     if(pk_cmtx == NULL) return E_PAR;
-    if(pk_cmtx->mtxatr != TA_TFIFO) return E_RSATR;
+    if(pk_cmtx->mtxatr != TA_TFIFO && pk_cmtx->mtxatr != TA_INHERIT) {
+        return E_RSATR;
+    }
     DI(intsts);
     for(index = 0; index < CNF_MAX_MTXID; index++) {
         if(mtxcb_tbl[index].state == KS_NONEXIST) {
             mtxcb_tbl[index].state = KS_EXIST;
+            mtxcb_tbl[index].attr = pk_cmtx->mtxatr;
             mtxcb_tbl[index].owner = NULL;
             EI(intsts);
             return index + 1;
@@ -52,7 +120,6 @@ ER tk_loc_mtx(ID mtxid, TMO tmout)
     MTXCB *mtxcb;
     if(is_interrupt_context() || cur_task == NULL) return E_CTX;
     if(mtxid <= 0 || mtxid > CNF_MAX_MTXID) return E_ID;
-    /* Adding the timer period must not overflow signed RELTIM. */
     if(tmout < TMO_FEVR || tmout > INT32_MAX - TIMER_PERIOD) return E_PAR;
     DI(intsts);
     if(intsts != 0U) {
@@ -76,6 +143,7 @@ ER tk_loc_mtx(ID mtxid, TMO tmout)
         cur_task->waitim = (tmout == TMO_FEVR) ? tmout : tmout + TIMER_PERIOD;
         cur_task->waierr = &err;
         tqueue_add_entry(&wait_queue, cur_task);
+        recalculate_priorities();
         scheduler();
     }
     EI(intsts);
@@ -97,17 +165,26 @@ ER tk_unl_mtx(ID mtxid)
         err = E_ILUSE;
     } else {
         release_mutex(mtxid - 1);
+        recalculate_priorities();
         scheduler();
     }
     EI(intsts);
     return err;
 }
 
+void mutex_wait_timeout(TCB *waiter)
+{
+    (void)waiter;
+    recalculate_priorities();
+}
+
 void mutex_release_all(TCB *owner)
 {
-    for(INT index = 0; index < CNF_MAX_MTXID; index++) {
+    INT index;
+    for(index = 0; index < CNF_MAX_MTXID; index++) {
         if(mtxcb_tbl[index].state == KS_EXIST && mtxcb_tbl[index].owner == owner) {
             release_mutex(index);
         }
     }
+    recalculate_priorities();
 }

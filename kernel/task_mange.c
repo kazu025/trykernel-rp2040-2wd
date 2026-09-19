@@ -33,6 +33,7 @@ ID tk_cre_tsk( const T_CTSK *pk_ctsk )
         tcb_tbl[i].next     = NULL;
 
         tcb_tbl[i].tskadr   = pk_ctsk->task;
+        tcb_tbl[i].btskpri  = pk_ctsk->itskpri;
         tcb_tbl[i].itskpri  = pk_ctsk->itskpri;
         tcb_tbl[i].stksz    = pk_ctsk->stksz;
         tcb_tbl[i].stkadr   = pk_ctsk->bufptr;
@@ -85,4 +86,3 @@ void tk_ext_tsk( void )
     scheduler();                    // スケジューラを実行
     EI(intsts);     // 割込み許可
 }
-

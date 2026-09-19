@@ -96,7 +96,7 @@ static void i2c0_bus_recover_unlocked(void)
 ER i2c0_sync_init(void)
 {
     T_CMTX cmtx = {
-        .mtxatr = TA_TFIFO,
+        .mtxatr = TA_INHERIT,
     };
 
     i2c0_error_count = 0U;

@@ -37,6 +37,7 @@ typedef struct st_tcb {
     /* タスク情報 */
     TSTAT   state;              // タスク状態
     FP      tskadr;             // 実行開始アドレス
+    PRI     btskpri;            // 基準優先度
     PRI     itskpri;            // 実行優先度
     void    *stkadr;            // スタックのアドレス
     SZ      stksz;              // スタックのサイズ
@@ -111,10 +112,12 @@ typedef struct semaphore_control_block {
 /* ミューテックス管理情報。owner == NULLなら未ロック。 */
 typedef struct {
     KSSTAT state;
+    ATR attr;
     TCB *owner;
 } MTXCB;
 /* 割込み禁止下で呼ぶ。呼び出し側が最後にscheduler()を実行する。 */
 extern void mutex_release_all(TCB *owner);
+extern void mutex_wait_timeout(TCB *waiter);
 
 /* 固定長メッセージキュー管理情報(MSGQCB) */
 typedef struct message_queue_control_block {
