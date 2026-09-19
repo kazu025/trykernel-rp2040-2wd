@@ -138,7 +138,16 @@ ER task_mutexpi_init(void)
     if(task_low_id < E_OK) return (ER)task_low_id;
     return E_OK;
 }
-
+/*
+ * 1. LOW が先にミューテックスをロックする
+ * 2. HIGH が同じミューテックスを取りに行くが、LOW が持っているので待つ
+ * 3. この瞬間、LOW の実行優先度が 14 から 2 に引き上げられる
+ * 4. MEDIUM も動ける状態になる
+ * 5. でも LOW は優先度 2 に上がっているので、MEDIUM より先に動き続ける
+ * 6. LOW がミューテックスを解放する
+ * 7. HIGH がミューテックスを取得する
+ * 8. 最後に MEDIUM が動く
+ */
 void task_mutexpi_run_test(void)
 {
     UINT flag_pattern;
