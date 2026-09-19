@@ -81,6 +81,14 @@ ID tk_cre_sem( const T_CSEM *pk_csem );
 ER tk_sig_sem( ID semid, INT cnt );
 ER tk_wai_sem( ID semid, INT cnt, TMO tmout );
 
+/* FIFOミューテックス（優先度継承なし、再帰ロック不可） */
+typedef struct {
+    ATR mtxatr;
+} T_CMTX;
+ID tk_cre_mtx(const T_CMTX *pk_cmtx);
+ER tk_loc_mtx(ID mtxid, TMO tmout);
+ER tk_unl_mtx(ID mtxid);
+
 /* 固定長メッセージキュー生成情報 */
 typedef struct t_cmsgq {
     ATR     msgqatr;    // メッセージキュー属性
