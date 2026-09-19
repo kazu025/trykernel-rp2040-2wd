@@ -888,6 +888,29 @@ I2C0の保護には`TA_INHERIT`を使用します。優先度上限・再帰ロ�
 
 テスト対象は引数・コンテキスト検査、所有者管理、二重ロック、ポーリング、有限タイムアウト後の再取得、FIFO引き渡し、横取り防止、所有タスク終了時の全ロック解放、基本的な優先度継承、タイムアウト時の復元、複数ロック、連鎖継承、優先度順の待ち解除、生成上限です。
 
+### 実機での優先度継承テスト
+
+`mtxpitest`コマンドは、Pico上で優先度の異なる3タスクを動かします。
+
+| タスク | 基準優先度 | 動作 |
+|---|---:|---|
+| HIGH | 2 | LOWが所有するミューテックスを待つ |
+| MEDIUM | 8 | ミューテックスを使わない処理を実行する |
+| LOW | 14 | ミューテックスを取得し、処理後に解除する |
+
+HIGHが待ち始めると、LOWの現在優先度は14から2へ変化します。そのためLOWはMEDIUMより先に処理を完了し、HIGHへ所有権を渡します。
+
+```text
+> mtxpitest
+Mutex priority inheritance test start
+LOW priority: base=14 before=14 inherited=2
+Execution order: low-lock=1 low-unlock=2 high-lock=3 medium=4
+Medium ran while LOW held mutex: NO
+Mutex priority inheritance test: PASS
+```
+
+専用タスクはテスト終了後に休止状態へ戻るため、コマンドは繰り返し実行できます。テスト中も割り込みは禁止せず、通常のスケジューラとPendSVによるタスク切り替えを使用します。
+
 実機確認は以下の手順で行います。
 
 1. 通常の手順でビルド・書き込みし、LCD温度表示、MPU処理、INA226周期測定が動くことを確認。
@@ -1084,6 +1107,7 @@ minicom -D /dev/ttyACM0 -b 115200
 | `motion` | 3秒間静定してから移動計測モードを開始 |
 | `msgsend` | テストメッセージを受信タスクへ送信 |
 | `msgtest` | FIFO順序、キュー満杯、送受信タイムアウトをテスト |
+| `mtxpitest` | 3タスクでミューテックスの優先度継承を実機テスト |
 | `flashid` | W25QXX SPIフラッシュのJEDEC ID、メーカー、容量を表示 |
 | `flashstatus` | W25QXXのステータスレジスタ1を表示 |
 | `flashwen` | Write EnableとWrite DisableによるWELの変化をテスト |
