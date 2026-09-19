@@ -14,6 +14,7 @@ static ID chain_id;
 #define A (&tcb_tbl[0])
 #define B (&tcb_tbl[1])
 #define C (&tcb_tbl[2])
+#define D (&tcb_tbl[3])
 
 void *make_context(UW *sp, UINT size, void (*fp)())
 { (void)size; (void)fp; return sp; }
@@ -167,6 +168,37 @@ static void queue_high_after_low(void)
     assert(tk_unl_mtx(inherit_id) == E_OK);
     select_task(B);
 }
+
+static void exit_inherited_owner(void)
+{
+    assert(C->itskpri == A->itskpri);
+    select_task(C);
+    tk_ext_tsk();
+}
+
+static void exit_inherited_owner_with_ready_peer(void)
+{
+    reset_tasks();
+    D->btskpri = C->btskpri;
+    D->itskpri = C->btskpri;
+    D->state = TS_READY;
+    tqueue_add_entry(&ready_queue[PRI_INDEX(D->itskpri)], D);
+
+    select_task(C);
+    assert(tk_loc_mtx(inherit_id, TMO_POL) == E_OK);
+    select_task(A);
+    schedule_hook = exit_inherited_owner;
+    assert(tk_loc_mtx(inherit_id, TMO_FEVR) == E_OK);
+    assert(C->state == TS_DORMANT);
+    assert(D->state == TS_READY);
+    assert(ready_queue[PRI_INDEX(D->itskpri)] == D);
+    assert(D->next == NULL);
+    assert(A->state == TS_READY);
+    assert(A->itskpri == A->btskpri);
+    select_task(A);
+    assert(tk_unl_mtx(inherit_id) == E_OK);
+}
+
 int main(void)
 {
     T_CMTX attr = {TA_TFIFO};
@@ -281,6 +313,9 @@ int main(void)
     assert(tk_loc_mtx(inherit_id, TMO_FEVR) == E_OK);
     assert(tk_unl_mtx(inherit_id) == E_OK);
     puts("PASS: TA_INHERIT selects the highest-priority waiter");
+
+    exit_inherited_owner_with_ready_peer();
+    puts("PASS: inherited owner exit removes the exiting task by identity");
 
     for(INT i = 5; i <= CNF_MAX_MTXID; i++) assert(tk_cre_mtx(&attr) == i);
     assert(tk_cre_mtx(&attr) == E_LIMIT);

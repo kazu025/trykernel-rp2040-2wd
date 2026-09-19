@@ -80,8 +80,8 @@ void tk_ext_tsk( void )
     DI(intsts);     // 割込み禁止
 
     mutex_release_all(cur_task);    // 所有ロックを返し、待ちタスクへ引き継ぐ
-    cur_task->state	= TS_DORMANT;    // タスクを休止状態へ
-    tqueue_remove_top(&ready_queue[PRI_INDEX(cur_task->itskpri)]);
+    tqueue_remove_entry(&ready_queue[PRI_INDEX(cur_task->itskpri)], cur_task);
+    cur_task->state = TS_DORMANT;    // タスクを休止状態へ
 
     scheduler();                    // スケジューラを実行
     EI(intsts);     // 割込み許可
