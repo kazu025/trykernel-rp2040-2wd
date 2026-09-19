@@ -14,6 +14,7 @@
 #define TA_TPRI     0x00000001          // 待ちタスクを優先度順で管理
 #define TA_FIRST    0x00000000          // 待ち行列先頭のタスクを優先
 #define TA_CNT      0x00000002          // 要求数の少ないタスクを優先
+#define TA_INHERIT  0x00000002          // 優先度継承プロトコル（ミューテックス）
 
 /*タスク生成情報 */
 typedef struct {
@@ -81,7 +82,7 @@ ID tk_cre_sem( const T_CSEM *pk_csem );
 ER tk_sig_sem( ID semid, INT cnt );
 ER tk_wai_sem( ID semid, INT cnt, TMO tmout );
 
-/* FIFOミューテックス（優先度継承なし、再帰ロック不可） */
+/* ミューテックス（再帰ロック不可） */
 typedef struct {
     ATR mtxatr;
 } T_CMTX;

@@ -8,6 +8,7 @@
 #include "grove_lcd.h"
 #include "task_mpuirq.h"
 #include "task_msgtest.h"
+#include "task_mutexpi.h"
 #include "task_motionled.h"
 #include "spi.h"
 #include "w25qxx.h"
@@ -299,6 +300,10 @@ int usermain(void)
         return (int)ercd;
     }
     ercd = task_msgtest_init();
+    if(ercd < E_OK){
+        return (int)ercd;
+    }
+    ercd = task_mutexpi_init();
     if(ercd < E_OK){
         return (int)ercd;
     }

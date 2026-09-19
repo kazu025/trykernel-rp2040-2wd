@@ -13,6 +13,7 @@
 #include "task_lcdtemp.h"
 #include "task_mpuirq.h"
 #include "task_msgtest.h"
+#include "task_mutexpi.h"
 #include "task_motionled.h"
 #include "w25qxx.h"
 #include "task_flashlog.h"
@@ -44,6 +45,7 @@ static void cmd_mpuirq(int argc, char *argv[]);
 static void cmd_motion(int argc, char *argv[]);
 static void cmd_msgsend(int argc, char *argv[]);
 static void cmd_msgtest(int argc, char *argv[]);
+static void cmd_mtxpitest(int argc, char *argv[]);
 static void cmd_flashid(int argc, char *argv[]);
 static void cmd_flashstatus(int argc, char *argv[]);
 static void cmd_flashwen(int argc, char *argv[]);
@@ -89,6 +91,7 @@ static const command_t command_table[] = {
     {"motion", cmd_motion, "start motion measurement after 3-second settling"},
     {"msgsend", cmd_msgsend, "send a test message to another task"},
     {"msgtest", cmd_msgtest, "test message FIFO, full queue and timeout"},
+    {"mtxpitest", cmd_mtxpitest, "test mutex priority inheritance on hardware"},
     {"flashid", cmd_flashid, "show SPI flash JEDEC ID"},
     {"flashstatus", cmd_flashstatus, "show SPI flash status register-1"},
     {"flashwen", cmd_flashwen, "test SPI flash Write Enable latch"},
@@ -1049,6 +1052,14 @@ static void cmd_msgtest(int argc, char *argv[])
     (void)argv;
 
     task_msgtest_run_tests();
+}
+
+static void cmd_mtxpitest(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    task_mutexpi_run_test();
 }
 
 static void cmd_flashid(int argc, char *argv[])

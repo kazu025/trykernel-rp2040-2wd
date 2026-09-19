@@ -64,6 +64,7 @@ C_SRCS  := \
 	user/task_lcdtemp.c \
 	user/task_mpuirq.c \
 	user/task_msgtest.c \
+	user/task_mutexpi.c \
 	user/task_motionled.c \
 	user/task_flashlog.c \
 	user/task_inapower.c \
