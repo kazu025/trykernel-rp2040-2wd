@@ -46,6 +46,7 @@ C_SRCS  := \
 	boot/reset_hdr.c \
 	boot/vector_tbl.c \
 	kernel/context.c \
+	kernel/cyclic.c \
 	kernel/eventflag.c \
 	kernel/inittsk.c \
 	kernel/message_queue.c \
@@ -161,5 +162,13 @@ test-mutex:
 	@mkdir -p $(BUILD)/tests
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -Itests/host -Iinclude \
 		tests/host/mutex_test.c kernel/mutex.c kernel/task_queue.c \
-		kernel/systimer.c kernel/task_mange.c -o $(BUILD)/tests/mutex_test
+		kernel/systimer.c kernel/cyclic.c kernel/task_mange.c -o $(BUILD)/tests/mutex_test
 	$(BUILD)/tests/mutex_test
+
+.PHONY: test-cyclic
+test-cyclic:
+	@mkdir -p $(BUILD)/tests
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -Itests/host -Iinclude \
+		tests/host/cyclic_test.c kernel/cyclic.c kernel/systimer.c \
+		kernel/task_queue.c -o $(BUILD)/tests/cyclic_test
+	$(BUILD)/tests/cyclic_test

@@ -136,4 +136,6 @@ extern int main(void);
 /* ユーザメイン関数 */
 extern int usermain(void);
 
+extern void cyclic_tick(void); /* SysTickから1回呼ぶ */
+
 #endif  /* KNLDEF_H */

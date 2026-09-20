@@ -16,7 +16,7 @@ static void recalculate_priorities(void)
     BOOL changed;
     INT i, pass;
     TCB *waiter;
-
+    // 全タスクの優先度を基準優先度に初期化する
     for(i = 0; i < CNF_MAX_TSKID; i++) {
         calculated_priority[i] = tcb_tbl[i].btskpri;
     }
@@ -36,6 +36,8 @@ static void recalculate_priorities(void)
                 INT waiter_index;
                 if(waiter->waifct != TWFCT_MTX || waiter->waiobj != i) continue;
                 waiter_index = task_index(waiter);
+                // mutexを待っているタスクの優先度が、
+                // mutexを所有しているタスクの優先度より高い場合、所有者の優先度を引き上げる
                 if(calculated_priority[waiter_index] < calculated_priority[owner_index]) {
                     calculated_priority[owner_index] = calculated_priority[waiter_index];
                     changed = TRUE;
@@ -50,6 +52,8 @@ static void recalculate_priorities(void)
         PRI oldpri;
         if(tcb->state == TS_NONEXIST ||
            tcb->itskpri == calculated_priority[i]) continue;
+        // taskの優先度を変更する場合、
+        // レディキューから外してから優先度を変更し、再度レディキューに追加する
         oldpri = tcb->itskpri;
         if(tcb->state == TS_READY) {
             tqueue_remove_entry(&ready_queue[PRI_INDEX(oldpri)], tcb);
@@ -89,7 +93,11 @@ static void release_mutex(INT index)
     *tcb->waierr = E_OK;
     tqueue_add_entry(&ready_queue[PRI_INDEX(tcb->itskpri)], tcb);
 }
-
+/*
+ * mutex生成
+ * 属性: TA_TFIFO,TA_INHERITのみ有効
+ * mtxid: 生成されたmutexのIDを返す
+ */
 ID tk_cre_mtx(const T_CMTX *pk_cmtx)
 {
     UINT intsts;
@@ -112,7 +120,11 @@ ID tk_cre_mtx(const T_CMTX *pk_cmtx)
     EI(intsts);
     return E_LIMIT;
 }
-
+/*
+ * mutex取得
+ * mtxid: 取得するmutexのID
+ * tmout: タイムアウト時間
+ */
 ER tk_loc_mtx(ID mtxid, TMO tmout)
 {
     UINT intsts;
@@ -129,13 +141,14 @@ ER tk_loc_mtx(ID mtxid, TMO tmout)
     mtxcb = &mtxcb_tbl[mtxid - 1];
     if(mtxcb->state != KS_EXIST) {
         err = E_NOEXS;
-    } else if(mtxcb->owner == cur_task) {
+    } else if(mtxcb->owner == cur_task) {//
         err = E_ILUSE;
-    } else if(mtxcb->owner == NULL) {
-        mtxcb->owner = cur_task;
+    } else if(mtxcb->owner == NULL) { //オーナーがいない場合、ロックする
+        mtxcb->owner = cur_task; // オーナーを設定→mutex取得
     } else if(tmout == TMO_POL) {
         err = E_TMOUT;
     } else {
+        // 取得できなかった場合、ウェイトキューに入れる
         tqueue_remove_entry(&ready_queue[PRI_INDEX(cur_task->itskpri)], cur_task);
         cur_task->state = TS_WAIT;
         cur_task->waifct = TWFCT_MTX;

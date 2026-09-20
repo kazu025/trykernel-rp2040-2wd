@@ -10,12 +10,14 @@
 #define TMO_FEVR            (-1)        // 無限待ち
 
 /* 待ち関連属性 */
-#define TA_TFIFO    0x00000000          // 待ちタスクをFIFO順で管理
-#define TA_TPRI     0x00000001          // 待ちタスクを優先度順で管理
-#define TA_FIRST    0x00000000          // 待ち行列先頭のタスクを優先
-#define TA_CNT      0x00000002          // 要求数の少ないタスクを優先
-#define TA_INHERIT  0x00000002          // 優先度継承プロトコル（ミューテックス）
-
+#define TA_TFIFO    0x00000000  // 待ちタスクをFIFO順で管理,優先度継承なし(ミューテックス用)
+#define TA_FIRST    0x00000000  // 待ち行列先頭のタスクを優先（セマフォ用）
+#define TA_TPRI     0x00000001  // 待ちタスクを優先度順で管理
+#define TA_CNT      0x00000002  // 要求数の少ないタスクを優先
+#define TA_INHERIT  0x00000003  // 優先度継承プロトコル（ミューテックス用）
+#define TA_WMUL     0x00000008  // 複数タスクの待ちを許す(イベントフラグ用)
+                                // 1つのイベントフラグに対して複数タスクが同時に待てるようにする
+                                // (※)現在の実装では、未実装で、常に複数のタスクまち可能
 /*タスク生成情報 */
 typedef struct {
     ATR     tskatr;     // タスク属性
@@ -33,14 +35,6 @@ typedef struct {
 #define TA_RNG1         0x0000100           // 保護レベル1
 #define TA_RNG2         0x0000200           // 保護レベル2
 #define TA_RNG3         0x0000300           // 保護レベル3
-
-/* タスクの待ち属性 */
-// #define TA_TFIFO        0x00000000          // 待ちタスクをFIFO順で管理
-#define TA_TPRI         0x00000001          // 待ちタスクを優先度順で管理
-#define TA_FIRST        0x00000000          // 待ち行列先頭のタスクを優先
-#define TA_CNT          0x00000002          // 要求数の少ないタスクを優先
-#define TA_WSGL         0x00000000          // 複数タスクの待ちを許さない
-#define TA_WMUL         0x00000008          // 複数タスクの待ちを許す
 
 /* タスク管理API */
 ID tk_cre_tsk( const T_CTSK *pk_ctsk );
@@ -102,5 +96,26 @@ typedef struct t_cmsgq {
 ID tk_cre_msgq( const T_CMSGQ *pk_cmsgq );
 ER tk_snd_msgq( ID msgqid, const void *msg, TMO tmout );
 ER tk_rcv_msgq( ID msgqid, void *msg, TMO tmout );
+
+/* 周期ハンドラ: 時間単位 ms。管理APIはタスクコンテキスト専用。 */
+#define TA_STA  0x00000002U
+#define TCYC_STP 0U
+#define TCYC_STA 1U
+typedef struct {
+    void *exinf;
+    ATR cycatr;                 /* TA_HLNG | optional TA_STA */
+    void (*cychdr)(void *);
+    RELTIM cyctim;              /* 周期 > 0 */
+    RELTIM cycphs;              /* 初回遅延 >= 0 */
+} T_CCYC;
+typedef struct {
+    UINT cycstat;
+    RELTIM lfttim;              /* 停止中は0 */
+} T_RCYC;
+ID tk_cre_cyc(const T_CCYC *pk_ccyc);
+ER tk_sta_cyc(ID cycid);
+ER tk_stp_cyc(ID cycid);
+ER tk_del_cyc(ID cycid);
+ER tk_ref_cyc(ID cycid, T_RCYC *pk_rcyc);
 
 #endif  /* APIDEF_H */

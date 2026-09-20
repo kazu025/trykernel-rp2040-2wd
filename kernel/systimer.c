@@ -37,5 +37,6 @@ void systimer_handler(void)
             tqueue_add_entry( &ready_queue[PRI_INDEX(tcb->itskpri)], tcb); // タスクをレディキューにつなぐ
         }
     }
+    cyclic_tick();
     scheduler();        // スケジューラを実行する
 }
