@@ -24,6 +24,7 @@ static void cmd_motor(int argc, char *argv[]);
 static void cmd_drive(int argc, char *argv[]);
 static int split_args(char *line, char *argv[], int max_args);
 static BOOL parse_u8(const char *text, UB *value);
+static BOOL parse_duration(const char *text, RELTIM *value);
 static BOOL str_eq(const char *a, const char *b);
 
 static const command_t command_table[] = {
@@ -79,6 +80,23 @@ static BOOL parse_u8(const char *text, UB *value)
         text++;
     }
     *value = (UB)number;
+    return TRUE;
+}
+
+static BOOL parse_duration(const char *text, RELTIM *value)
+{
+    UW number = 0U;
+
+    if((text == NULL) || (value == NULL) || (*text == '\0')) return FALSE;
+    while(*text != '\0'){
+        UW digit;
+        if((*text < '0') || (*text > '9')) return FALSE;
+        digit = (UW)(*text - '0');
+        if(number > 6000U || (number == 6000U && digit > 0U)) return FALSE;
+        number = (number * 10U) + digit;
+        text++;
+    }
+    *value = (RELTIM)number;
     return TRUE;
 }
 
@@ -208,14 +226,19 @@ usage:
 static void cmd_drive(int argc, char *argv[])
 {
     UB duty;
+    RELTIM duration;
 
     if(argc == 2 && str_eq(argv[1], "stop") == TRUE){
         motor_stop_all();
         uart_tx_send("drive: stopped\r\n");
         return;
     }
-    if(argc != 3 || parse_u8(argv[2], &duty) == FALSE || duty > 100U){
-        uart_tx_send("usage: drive forward|reverse|left|right <0-100>, or stop\r\n");
+    if((argc != 3 && argc != 4) || parse_u8(argv[2], &duty) == FALSE || duty > 100U){
+        uart_tx_send("usage: drive forward|reverse|left|right <0-100> [ms], or stop\r\n");
+        return;
+    }
+    if(argc == 4 && parse_duration(argv[3], &duration) == FALSE){
+        uart_tx_send("drive: duration must be 0 through 60000 ms\r\n");
         return;
     }
     if(str_eq(argv[1], "forward") == TRUE) motor_drive_forward(duty);
@@ -223,8 +246,13 @@ static void cmd_drive(int argc, char *argv[])
     else if(str_eq(argv[1], "left") == TRUE) motor_drive_left(duty);
     else if(str_eq(argv[1], "right") == TRUE) motor_drive_right(duty);
     else {
-        uart_tx_send("usage: drive forward|reverse|left|right <0-100>, or stop\r\n");
+        uart_tx_send("usage: drive forward|reverse|left|right <0-100> [ms], or stop\r\n");
         return;
     }
     uart_tx_printf("drive: %s %u%%\r\n", argv[1], (UINT)duty);
+    if(argc == 4){
+        (void)tk_dly_tsk(duration);
+        motor_stop_all();
+        uart_tx_send("drive: timed run stopped\r\n");
+    }
 }
