@@ -18,6 +18,7 @@
 #include "w25qxx.h"
 #include "task_flashlog.h"
 #include "task_inapower.h"
+#include "motor.h"
 
 /* --- コマンドバッファ最大数 --- */
 #define CMD_MAX_ARGS    16
@@ -58,6 +59,7 @@ static void cmd_lcdtest(int argc, char *argv[]);
 static void cmd_lcdtemp(int argc, char *argv[]);
 static void cmd_lcdcolor(int argc, char *argv[]);
 static void cmd_lcdmode(int argc, char *argv[]);
+static void cmd_motor(int argc, char *argv[]);
 static void format_temperature_line(INT temperature_milli_c, char *line);
 static BOOL parse_u8(const char *text, UB *value);
 static BOOL str_eq(const char *a, const char *b);
@@ -103,9 +105,19 @@ static const command_t command_table[] = {
     {"lcdtest", cmd_lcdtest, "test Grove RGB LCD V5.0"},
     {"lcdtemp", cmd_lcdtemp, "show ADT7410 temperature on LCD"},
     {"lcdcolor", cmd_lcdcolor, "set LCD backlight: R G B"},
-    {"lcdmode", cmd_lcdmode, "set LCD mode: temp|accel|gyro"}
+    {"lcdmode", cmd_lcdmode, "set LCD mode: temp|accel|gyro"},
+    {"motor", cmd_motor, "left|right forward|reverse <0-100>, or stop"}
 };
 static const int command_count = sizeof(command_table)/sizeof(command_table[0]);
+
+/* 初期化していない旧センサー機能は2WDコンソールから呼び出さない。 */
+static BOOL command_enabled(const char *name)
+{
+    return str_eq(name, "help") || str_eq(name, "h")
+        || str_eq(name, "status") || str_eq(name, "echo")
+        || str_eq(name, "led") || str_eq(name, "print")
+        || str_eq(name, "motor");
+}
 
 /* 受信した行を処理する */
 void command_execute(char *line){
@@ -115,6 +127,10 @@ void command_execute(char *line){
     if(argc == 0) return;
     for(int i=0; i<command_count; i++){
         if(str_eq(argv[0], command_table[i].name) == TRUE){
+            if(!command_enabled(command_table[i].name)){
+                uart_tx_send("command disabled in 2WD configuration\r\n");
+                return;
+            }
             command_table[i].func(argc, argv);
             return;
         }
@@ -191,6 +207,7 @@ static void cmd_help(int argc, char *argv[]){
     (void)argv;
     uart_tx_send("commands:\r\n");
     for(int i=0; i<command_count; i++){
+        if(!command_enabled(command_table[i].name)) continue;
         uart_tx_printf("   %s -  %s\r\n", command_table[i].name, command_table[i].help);
     }
 }
@@ -255,6 +272,62 @@ static void cmd_led(int argc, char *argv[]){
     }else{
         uart_tx_send("usage: led on|off|blink\r\n");
     }
+}
+
+/* 例: motor left forward 20 / motor left stop / motor stop */
+static void cmd_motor(int argc, char *argv[])
+{
+    BOOL is_left;
+    BOOL forward;
+    UB duty;
+
+    if((argc == 2) && (str_eq(argv[1], "stop") == TRUE)){
+        motor_stop_all();
+        uart_tx_send("motor: all stopped\r\n");
+        return;
+    }
+    if((argc == 3) && (str_eq(argv[2], "stop") == TRUE)){
+        if(str_eq(argv[1], "left") == TRUE){
+            motor_left_stop();
+        }else if(str_eq(argv[1], "right") == TRUE){
+            motor_right_stop();
+        }else{
+            uart_tx_send("usage: motor left|right forward|reverse <0-100>, or stop\r\n");
+            return;
+        }
+        uart_tx_printf("motor: %s stopped\r\n", argv[1]);
+        return;
+    }
+    if(argc != 4){
+        uart_tx_send("usage: motor left|right forward|reverse <0-100>, or stop\r\n");
+        return;
+    }
+    if(str_eq(argv[1], "left") == TRUE){
+        is_left = TRUE;
+    }else if(str_eq(argv[1], "right") == TRUE){
+        is_left = FALSE;
+    }else{
+        uart_tx_send("usage: motor left|right forward|reverse <0-100>, or stop\r\n");
+        return;
+    }
+    if(str_eq(argv[2], "forward") == TRUE){
+        forward = TRUE;
+    }else if(str_eq(argv[2], "reverse") == TRUE){
+        forward = FALSE;
+    }else{
+        uart_tx_send("usage: motor left|right forward|reverse <0-100>, or stop\r\n");
+        return;
+    }
+    if((parse_u8(argv[3], &duty) == FALSE) || (duty > 100U)){
+        uart_tx_send("motor: duty must be 0 through 100\r\n");
+        return;
+    }
+    if(is_left == TRUE){
+        motor_left_set(forward, duty);
+    }else{
+        motor_right_set(forward, duty);
+    }
+    uart_tx_printf("motor: %s %s %u%%\r\n", argv[1], argv[2], (UINT)duty);
 }
 /*
  * mini_printf()テスト

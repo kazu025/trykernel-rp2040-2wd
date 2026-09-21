@@ -61,6 +61,7 @@
 #define RESETS_RESET_I2C1       (0x00000010)
 #define RESETS_RESET_IO_BANK0   (1<<5)
 #define RESETS_RESET_PADS_BANK0 (1<<8)
+#define RESETS_RESET_PWM        (1<<14)
 #define RESETS_RESET_SPI0       (1<<16)
 
 /* GPIO */
@@ -73,6 +74,7 @@
 #define	GPIO_CTRL_FUNCSEL_I2C   3
 #define GPIO_CTRL_FUNCSEL_SIO   5
 #define GPIO_CTRL_FUNCSEL_SPI   1
+#define GPIO_CTRL_FUNCSEL_PWM   4
 #define	GPIO_CTRL_FUNCSEL_NULL  31
 
 #define PADS_BANK0_BASE         0x4001c000
@@ -214,6 +216,19 @@
 #define SPI_SR_TNF                 (1U << 1)
 #define SPI_SR_RNE                 (1U << 2)
 #define SPI_SR_BSY                 (1U << 4)
+
+/* PWM */
+#define PWM_BASE                    0x40050000
+#define PWM_SLICE_STRIDE            0x14U
+#define PWM_CSR(slice)              (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x00U)
+#define PWM_DIV(slice)              (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x04U)
+#define PWM_CTR(slice)              (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x08U)
+#define PWM_CC(slice)               (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x0CU)
+#define PWM_TOP(slice)              (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x10U)
+#define PWM_EN                      (PWM_BASE + 0xA0U)
+#define PWM_CSR_EN                  (1U << 0)
+#define PWM_DIV_INT(value)          ((UW)(value) << 4)
+#define PWM_CC_B(level)             ((UW)(level) << 16)
 
 /* IOPORT レジスタ */
 #define SIO_BASE                0xD0000000

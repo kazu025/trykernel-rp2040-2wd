@@ -165,6 +165,8 @@ void task_mpuirq(INT stacd, void *exinf)
             || gpio_irq_init_rising(
                 MPU_INT_PIN, mpu_data_ready_notify_from_isr) == FALSE){
         uart_tx_send("MPU data ready IRQ initialization error\r\n");
+        /* タスク関数は通常のreturnで終了できない。 */
+        tk_ext_tsk();
         return;
     }
 

@@ -59,6 +59,7 @@ C_SRCS  := \
 	kernel/task_sync.c \
 	drivers/gpio.c \
 	drivers/i2c.c \
+	drivers/pwm.c \
 	drivers/spi.c \
 	drivers/uart.c \
 	user/task_led.c	\
@@ -71,6 +72,7 @@ C_SRCS  := \
 	user/task_inapower.c \
 	user/task_uartrx.c \
 	user/usermain.c \
+	user/motor.c \
 	user/command.c \
 	user/task_uartlog.c \
 	user/console.c	\
