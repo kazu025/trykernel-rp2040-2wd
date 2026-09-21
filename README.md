@@ -35,6 +35,7 @@ TryKernelの原典は、CQ出版社『Interface』2023年7月号「ラズパイP
 ## 現在できること
 
 - 左右モーターの独立した正転・逆転・停止
+- 左右モーターを組み合わせた前進・後退・左右旋回
 - 0〜100のPWMデューティ指定（PWM周波数は20kHz）
 - UARTコマンドによる操作と通信状態の確認
 - オンボードLEDの点灯・消灯・点滅
@@ -146,6 +147,10 @@ TryKernel 2WD: UART / LED / motor ready
 | `motor right reverse 30` | 右モーターを逆転、デューティ指定30 |
 | `motor left stop` / `motor right stop` | 片側を停止 |
 | `motor stop` | 両側を停止 |
+| `drive forward 50` | 両輪を前進 |
+| `drive reverse 50` | 両輪を後退 |
+| `drive left 40` / `drive right 40` | 左右へ旋回 |
+| `drive stop` | 両輪を停止 |
 
 数値は回転速度の測定値ではなく、PWMのデューティ指定です。50を指定しても最高回転数の半分になるとは限りません。小さい値ではモーターが始動しない場合もあります。
 
