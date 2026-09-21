@@ -58,35 +58,19 @@ C_SRCS  := \
 	kernel/task_queue.c \
 	kernel/task_sync.c \
 	drivers/gpio.c \
-	drivers/i2c.c \
 	drivers/pwm.c \
-	drivers/spi.c \
 	drivers/uart.c \
 	user/task_led.c	\
-	user/task_lcdtemp.c \
-	user/task_mpuirq.c \
-	user/task_msgtest.c \
-	user/task_mutexpi.c \
-	user/task_motionled.c \
-	user/task_flashlog.c \
-	user/task_inapower.c \
 	user/task_uartrx.c \
 	user/usermain.c \
 	user/motor.c \
 	user/command.c \
-	user/task_uartlog.c \
 	user/console.c	\
 	user/uart_sync.c \
 	user/task_uarttx.c \
 	user/uart_tx.c	\
 	user/mini_printf.c \
 	drivers/gpio.c \
-	drivers/adt7410.c \
-	drivers/ina226.c \
-	drivers/mpu6050.c \
-	drivers/w25qxx.c \
-	drivers/grove_lcd.c \
-	drivers/i2c.c \
 	drivers/uart.c
 #	kernel/syslib.c \
 
