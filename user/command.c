@@ -4,6 +4,8 @@
 #include "uart_tx.h"
 #include "uart.h"
 #include "motor.h"
+#include "i2c.h"
+#include "task_distance.h"
 
 #define CMD_MAX_ARGS       16
 #define CMD_OUTPUT_BUF_SIZE 128U
@@ -22,6 +24,8 @@ static void cmd_led(int argc, char *argv[]);
 static void cmd_print(int argc, char *argv[]);
 static void cmd_motor(int argc, char *argv[]);
 static void cmd_drive(int argc, char *argv[]);
+static void cmd_i2cscan(int argc, char *argv[]);
+static void cmd_distance(int argc, char *argv[]);
 static int split_args(char *line, char *argv[], int max_args);
 static BOOL parse_u8(const char *text, UB *value);
 static BOOL parse_duration(const char *text, RELTIM *value);
@@ -35,7 +39,9 @@ static const command_t command_table[] = {
     {"led",    cmd_led,    "led on/off/blink"},
     {"print",  cmd_print,  "print test"},
     {"motor",  cmd_motor,  "left|right forward|reverse <0-100>, or stop"},
-    {"drive",  cmd_drive,  "forward|reverse|left|right <0-100>, or stop"}
+    {"drive",  cmd_drive,  "forward|reverse|left|right <0-100> [ms], or stop"},
+    {"i2cscan", cmd_i2cscan, "scan I2C bus"},
+    {"distance", cmd_distance, "measure distance in millimeters"}
 };
 
 static const int command_count = sizeof(command_table) / sizeof(command_table[0]);
@@ -214,6 +220,10 @@ static void cmd_motor(int argc, char *argv[])
         uart_tx_send("motor: duty must be 0 through 100\r\n");
         return;
     }
+    if(forward == TRUE && duty != 0U && motor_obstacle_blocked() == TRUE){
+        uart_tx_send("motor: obstacle too close or distance unavailable\r\n");
+        return;
+    }
     if(is_left == TRUE) motor_left_set(forward, duty);
     else motor_right_set(forward, duty);
     uart_tx_printf("motor: %s %s %u%%\r\n", argv[1], argv[2], (UINT)duty);
@@ -241,6 +251,11 @@ static void cmd_drive(int argc, char *argv[])
         uart_tx_send("drive: duration must be 0 through 60000 ms\r\n");
         return;
     }
+    if(duty != 0U && motor_obstacle_blocked() == TRUE
+            && str_eq(argv[1], "reverse") == FALSE){
+        uart_tx_send("drive: obstacle too close or distance unavailable\r\n");
+        return;
+    }
     if(str_eq(argv[1], "forward") == TRUE) motor_drive_forward(duty);
     else if(str_eq(argv[1], "reverse") == TRUE) motor_drive_reverse(duty);
     else if(str_eq(argv[1], "left") == TRUE) motor_drive_left(duty);
@@ -255,4 +270,37 @@ static void cmd_drive(int argc, char *argv[])
         motor_stop_all();
         uart_tx_send("drive: timed run stopped\r\n");
     }
+}
+
+static void cmd_i2cscan(int argc, char *argv[])
+{
+    UB address;
+    UINT found = 0U;
+    (void)argc;
+    (void)argv;
+
+    uart_tx_send("I2C scan:\r\n");
+    for(address = 0x08U; address <= 0x77U; address++){
+        if(i2c0_probe(address) == TRUE){
+            uart_tx_printf("  0x%x\r\n", (UINT)address);
+            found++;
+        }
+    }
+    if(found == 0U) uart_tx_send("  no devices found\r\n");
+}
+
+static void cmd_distance(int argc, char *argv[])
+{
+    UH average_mm;
+    UH latest_mm;
+    UINT sample_count;
+    (void)argc;
+    (void)argv;
+
+    if(task_distance_get(&average_mm, &latest_mm, &sample_count) == FALSE){
+        uart_tx_send("distance: waiting for VL53L1X data\r\n");
+        return;
+    }
+    uart_tx_printf("distance: average %u mm, latest %u mm, samples %u\r\n",
+                   (UINT)average_mm, (UINT)latest_mm, sample_count);
 }

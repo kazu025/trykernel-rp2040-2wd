@@ -57,10 +57,13 @@ C_SRCS  := \
 	kernel/task_mange.c \
 	kernel/task_queue.c \
 	kernel/task_sync.c \
+	drivers/i2c.c \
+	drivers/vl53l1x.c \
 	drivers/gpio.c \
 	drivers/pwm.c \
 	drivers/uart.c \
 	user/task_led.c	\
+	user/task_distance.c \
 	user/task_uartrx.c \
 	user/usermain.c \
 	user/motor.c \
