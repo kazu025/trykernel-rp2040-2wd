@@ -9,6 +9,8 @@ void motor_right_set(BOOL forward, UB duty_percent);
 void motor_left_stop(void);
 void motor_right_stop(void);
 void motor_stop_all(void);
+void motor_drive_stop(void);
+void motor_ramp_step(void);
 void motor_drive_forward(UB duty_percent);
 void motor_drive_reverse(UB duty_percent);
 void motor_drive_left(UB duty_percent);

@@ -59,11 +59,13 @@ C_SRCS  := \
 	kernel/task_sync.c \
 	drivers/i2c.c \
 	drivers/vl53l1x.c \
+	drivers/mpu6050.c \
 	drivers/gpio.c \
 	drivers/pwm.c \
 	drivers/uart.c \
 	user/task_led.c	\
 	user/task_distance.c \
+	user/task_motor.c \
 	user/task_uartrx.c \
 	user/usermain.c \
 	user/motor.c \
@@ -161,3 +163,15 @@ test-cyclic:
 		tests/host/cyclic_test.c kernel/cyclic.c kernel/systimer.c \
 		kernel/task_queue.c -o $(BUILD)/tests/cyclic_test
 	$(BUILD)/tests/cyclic_test
+
+.PHONY: test-motor
+test-motor:
+	@mkdir -p $(BUILD)/tests
+	cc -std=c11 -Wall -Wextra -Werror -Itests/motor -Iinclude -Iuser -Idrivers tests/motor/motor_test.c -o $(BUILD)/tests/motor_test
+	$(BUILD)/tests/motor_test
+
+.PHONY: test-range
+test-range:
+	@mkdir -p $(BUILD)/tests
+	cc -std=c11 -Wall -Wextra -Werror -Itests/motor -Iinclude -Idrivers tests/motor/vl53l1x_test.c -o $(BUILD)/tests/range_test
+	$(BUILD)/tests/range_test

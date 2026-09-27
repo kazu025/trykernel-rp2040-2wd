@@ -33,6 +33,8 @@
 #define VL53L1X_REG_GPIO_STATUS       0x0031U
 #define VL53L1X_REG_INTERRUPT_CLEAR   0x0086U
 #define VL53L1X_REG_MODE_START        0x0087U
+#define VL53L1X_REG_RANGE_STATUS      0x0089U
+#define VL53L1X_RAW_RANGE_VALID       9U
 #define VL53L1X_REG_DISTANCE_MM       0x0096U
 #define VL53L1X_REG_BOOT_STATE        0x00E5U
 #define VL53L1X_REG_MODEL_ID          0x010FU
@@ -40,6 +42,9 @@
 #define VL53L1X_READY_RETRY_COUNT     250U
 
 static BOOL initialized;
+static volatile BOOL diagnostic_ready;
+static volatile UH diagnostic_distance;
+static volatile UB diagnostic_status;
 
 static const UB default_configuration[] = {
     0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x02, 0x08,
@@ -140,17 +145,49 @@ BOOL vl53l1x_init(void)
     return TRUE;
 }
 
+BOOL vl53l1x_get_last_result(UH *raw_mm, UB *raw_status)
+{
+    UINT intsts;
+    BOOL ready;
+    if(raw_mm == NULL || raw_status == NULL) return FALSE;
+    DI(intsts);
+    ready = diagnostic_ready;
+    *raw_mm = diagnostic_distance;
+    *raw_status = diagnostic_status;
+    EI(intsts);
+    return ready;
+}
+
 BOOL vl53l1x_read_distance(UH *distance_mm)
 {
     BOOL result = FALSE;
+    BOOL read_ok = FALSE;
+    UH raw_mm = 0U;
+    UB raw_status = 0U;
+    UINT intsts;
 
     if(distance_mm == NULL) return FALSE;
-    if(initialized == FALSE && vl53l1x_init() == FALSE) return FALSE;
-    if(write_register(VL53L1X_REG_MODE_START, 0x40U) == FALSE) return FALSE;
+    if(initialized == FALSE && vl53l1x_init() == FALSE) goto publish;
+    if(write_register(VL53L1X_REG_MODE_START, 0x40U) == FALSE) goto publish;
     if(wait_data_ready() != FALSE){
-        result = read_word(VL53L1X_REG_DISTANCE_MM, distance_mm);
+        if(read_register(VL53L1X_REG_RANGE_STATUS, &raw_status) != FALSE
+                && read_word(VL53L1X_REG_DISTANCE_MM, &raw_mm) != FALSE){
+            raw_status &= 0x1FU;
+            read_ok = TRUE;
+        }
         (void)write_register(VL53L1X_REG_INTERRUPT_CLEAR, 0x01U);
     }
     (void)write_register(VL53L1X_REG_MODE_START, 0x00U);
+    /* ST ULDではレジスタ値9がAPIのRangeStatus=0（有効）へ変換される。 */
+    if(read_ok == TRUE && raw_status == VL53L1X_RAW_RANGE_VALID){
+        *distance_mm = raw_mm;
+        result = TRUE;
+    }
+publish:
+    DI(intsts);
+    diagnostic_distance = raw_mm;
+    diagnostic_status = raw_status;
+    diagnostic_ready = read_ok;
+    EI(intsts);
     return result;
 }

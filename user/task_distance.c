@@ -54,6 +54,9 @@ void task_distance(INT stacd, void *exinf)
             shared_ready = FALSE;
             EI(intsts);
             motor_obstacle_update(0U, FALSE);
+            count = 0U;
+            next = 0U;
+            sum = 0U;
             (void)tk_dly_tsk(DISTANCE_RETRY_INTERVAL_MS);
             continue;
         }

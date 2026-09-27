@@ -6,6 +6,7 @@
 #include "uart_tx.h"
 #include "task_uartrx.h"
 #include "task_distance.h"
+#include "task_motor.h"
 
 extern void task_uarttx(INT stacd, void *exinf);
 extern void task_led1(INT stacd, void *exinf);
@@ -14,6 +15,7 @@ static UW stack_tx[1024 / sizeof(UW)];
 static UW stack_rx[1024 / sizeof(UW)];
 static UW stack_led[1024 / sizeof(UW)];
 static UW stack_distance[1024 / sizeof(UW)];
+static UW stack_motor[1024 / sizeof(UW)];
 
 static ER start_task(FP entry, PRI priority, UW *stack, SZ size)
 {
@@ -51,6 +53,10 @@ int usermain(void)
     if(err < E_OK) return err;
     err = start_task((FP)task_distance, 10,
                      stack_distance, sizeof(stack_distance));
+    if(err < E_OK) return err;
+    err = task_motor_init();
+    if(err < E_OK) return err;
+    err = start_task((FP)task_motor, 8, stack_motor, sizeof(stack_motor));
     if(err < E_OK) return err;
     return start_task((FP)task_uartrx, 4, stack_rx, sizeof(stack_rx));
 }

@@ -17,6 +17,8 @@
 
 /* 起動直後や測距失敗時は前進を許可しない。 */
 static volatile BOOL obstacle_blocked = TRUE;
+static INT current[2];
+static INT target[2];
 
 static UH duty_to_level(UB duty_percent)
 {
@@ -57,74 +59,95 @@ BOOL motor_obstacle_blocked(void)
     return obstacle_blocked;
 }
 
+/* 呼び出し元は割り込み禁止中。 */
+static void apply_wheel(UINT wheel, INT duty)
+{
+    motor_set(wheel == 0U ? MOTOR_LEFT_PHASE_PIN : MOTOR_RIGHT_PHASE_PIN,
+              wheel == 0U ? MOTOR_LEFT_PWM_SLICE : MOTOR_RIGHT_PWM_SLICE,
+              duty >= 0, (UB)(duty < 0 ? -duty : duty));
+}
+
+static void stop_locked(void)
+{
+    current[0] = current[1] = target[0] = target[1] = 0;
+    apply_wheel(0U, 0);
+    apply_wheel(1U, 0);
+}
+
 void motor_obstacle_update(UH distance_mm, BOOL valid)
 {
-    BOOL blocked = obstacle_blocked;
-
+    UINT intsts;
+    DI(intsts);
     if(valid == FALSE || distance_mm <= MOTOR_STOP_DISTANCE_MM){
+        if(obstacle_blocked == FALSE) stop_locked();
         obstacle_blocked = TRUE;
-        if(blocked == FALSE) motor_stop_all();
     }else{
         obstacle_blocked = FALSE;
     }
+    EI(intsts);
 }
 
-void motor_left_set(BOOL forward, UB duty_percent)
+static void set_immediate(UINT wheel, BOOL forward, UB duty)
 {
-    motor_set(MOTOR_LEFT_PHASE_PIN, MOTOR_LEFT_PWM_SLICE, forward, duty_percent);
+    UINT intsts;
+    DI(intsts);
+    if(duty > 100U) duty = 100U;
+    if(obstacle_blocked == TRUE && forward == TRUE) duty = 0U;
+    current[wheel] = target[wheel] = forward ? (INT)duty : -(INT)duty;
+    apply_wheel(wheel, current[wheel]);
+    EI(intsts);
 }
 
-void motor_right_set(BOOL forward, UB duty_percent)
-{
-    motor_set(MOTOR_RIGHT_PHASE_PIN, MOTOR_RIGHT_PWM_SLICE, forward, duty_percent);
-}
-
-void motor_left_stop(void)
-{
-    pwm_set_level_b(MOTOR_LEFT_PWM_SLICE, 0U);
-    gpio_clear(MOTOR_LEFT_PHASE_PIN);
-}
-
-void motor_right_stop(void)
-{
-    pwm_set_level_b(MOTOR_RIGHT_PWM_SLICE, 0U);
-    gpio_clear(MOTOR_RIGHT_PHASE_PIN);
-}
+void motor_left_set(BOOL forward, UB duty) { set_immediate(0U, forward, duty); }
+void motor_right_set(BOOL forward, UB duty) { set_immediate(1U, forward, duty); }
+void motor_left_stop(void) { set_immediate(0U, TRUE, 0U); }
+void motor_right_stop(void) { set_immediate(1U, TRUE, 0U); }
 
 void motor_stop_all(void)
 {
-    motor_left_stop();
-    motor_right_stop();
+    UINT intsts;
+    DI(intsts);
+    stop_locked();
+    EI(intsts);
 }
 
-void motor_drive_forward(UB duty_percent)
+static void set_targets(INT left, INT right)
 {
-    motor_left_set(TRUE, duty_percent);
-    motor_right_set(TRUE, duty_percent);
-}
-
-void motor_drive_reverse(UB duty_percent)
-{
-    motor_left_set(FALSE, duty_percent);
-    motor_right_set(FALSE, duty_percent);
-}
-
-void motor_drive_left(UB duty_percent)
-{
-    if(obstacle_blocked == TRUE){
-        motor_stop_all();
-        return;
+    UINT intsts;
+    DI(intsts);
+    if(obstacle_blocked == FALSE || (left <= 0 && right <= 0)){
+        target[0] = left;
+        target[1] = right;
     }
-    motor_left_set(FALSE, duty_percent);
-    motor_right_set(TRUE, duty_percent);
+    EI(intsts);
 }
 
-void motor_drive_right(UB duty_percent)
+/* 50msごとに5ポイント更新。逆転時は0を経由する。 */
+void motor_ramp_step(void)
 {
-    if(obstacle_blocked == TRUE){
-        motor_stop_all();
-        return;
+    UINT intsts, wheel;
+    DI(intsts);
+    for(wheel = 0U; wheel < 2U; wheel++){
+        INT next = current[wheel];
+        INT goal = target[wheel];
+        if((next > 0 && goal < 0) || (next < 0 && goal > 0)) goal = 0;
+        if(next < goal){
+            next += 5;
+            if(next > goal) next = goal;
+        }else if(next > goal){
+            next -= 5;
+            if(next < goal) next = goal;
+        }
+        if(next != current[wheel]){
+            current[wheel] = next;
+            apply_wheel(wheel, next);
+        }
     }
-    motor_left_set(TRUE, duty_percent);
-    motor_right_set(FALSE, duty_percent);
+    EI(intsts);
 }
+
+void motor_drive_stop(void) { set_targets(0, 0); }
+void motor_drive_forward(UB duty) { set_targets(duty, duty); }
+void motor_drive_reverse(UB duty) { set_targets(-(INT)duty, -(INT)duty); }
+void motor_drive_left(UB duty) { set_targets(-(INT)duty, duty); }
+void motor_drive_right(UB duty) { set_targets(duty, -(INT)duty); }

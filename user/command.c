@@ -6,6 +6,8 @@
 #include "motor.h"
 #include "i2c.h"
 #include "task_distance.h"
+#include "vl53l1x.h"
+#include "mpu6050.h"
 
 #define CMD_MAX_ARGS       16
 #define CMD_OUTPUT_BUF_SIZE 128U
@@ -26,6 +28,7 @@ static void cmd_motor(int argc, char *argv[]);
 static void cmd_drive(int argc, char *argv[]);
 static void cmd_i2cscan(int argc, char *argv[]);
 static void cmd_distance(int argc, char *argv[]);
+static void cmd_gyro(int argc, char *argv[]);
 static int split_args(char *line, char *argv[], int max_args);
 static BOOL parse_u8(const char *text, UB *value);
 static BOOL parse_duration(const char *text, RELTIM *value);
@@ -41,7 +44,8 @@ static const command_t command_table[] = {
     {"motor",  cmd_motor,  "left|right forward|reverse <0-100>, or stop"},
     {"drive",  cmd_drive,  "forward|reverse|left|right <0-100> [ms], or stop"},
     {"i2cscan", cmd_i2cscan, "scan I2C bus"},
-    {"distance", cmd_distance, "measure distance in millimeters"}
+    {"distance", cmd_distance, "measure distance in millimeters"},
+    {"gyro", cmd_gyro, "show angular velocity [1-50 samples], or calibrate"}
 };
 
 static const int command_count = sizeof(command_table) / sizeof(command_table[0]);
@@ -239,8 +243,8 @@ static void cmd_drive(int argc, char *argv[])
     RELTIM duration;
 
     if(argc == 2 && str_eq(argv[1], "stop") == TRUE){
-        motor_stop_all();
-        uart_tx_send("drive: stopped\r\n");
+        motor_drive_stop();
+        uart_tx_send("drive: decelerating\r\n");
         return;
     }
     if((argc != 3 && argc != 4) || parse_u8(argv[2], &duty) == FALSE || duty > 100U){
@@ -267,8 +271,8 @@ static void cmd_drive(int argc, char *argv[])
     uart_tx_printf("drive: %s %u%%\r\n", argv[1], (UINT)duty);
     if(argc == 4){
         (void)tk_dly_tsk(duration);
-        motor_stop_all();
-        uart_tx_send("drive: timed run stopped\r\n");
+        motor_drive_stop();
+        uart_tx_send("drive: timed run decelerating\r\n");
     }
 }
 
@@ -293,14 +297,82 @@ static void cmd_distance(int argc, char *argv[])
 {
     UH average_mm;
     UH latest_mm;
+    UH raw_mm;
+    UB raw_status;
     UINT sample_count;
     (void)argc;
     (void)argv;
 
     if(task_distance_get(&average_mm, &latest_mm, &sample_count) == FALSE){
-        uart_tx_send("distance: waiting for VL53L1X data\r\n");
+        if(vl53l1x_get_last_result(&raw_mm, &raw_status) == TRUE){
+            uart_tx_printf("distance: invalid range, raw %u mm, raw_status %u\r\n",
+                           (UINT)raw_mm, (UINT)raw_status);
+        }else{
+            uart_tx_send("distance: no data (communication/initialization/timeout)\r\n");
+        }
         return;
     }
-    uart_tx_printf("distance: average %u mm, latest %u mm, samples %u\r\n",
+    uart_tx_printf("distance: average %u mm, latest %u mm, samples %u (valid)\r\n",
                    (UINT)average_mm, (UINT)latest_mm, sample_count);
+}
+
+static void cmd_gyro(int argc, char *argv[])
+{
+    static BOOL initialized;
+    static BOOL calibrated;
+    BOOL calibrate = (argc == 2 && str_eq(argv[1], "calibrate") == TRUE);
+    UB device_id;
+    UB count = 1U;
+    mpu6050_raw_data_t raw;
+    INT x, y, z;
+
+    if(argc > 2 || (argc == 2 && calibrate == FALSE &&
+            (parse_u8(argv[1], &count) == FALSE || count == 0U || count > 50U))){
+        uart_tx_send("usage: gyro [1-50 samples], or gyro calibrate\r\n");
+        return;
+    }
+    if(mpu6050_read_who_am_i(&device_id) == FALSE){
+        initialized = FALSE;
+        uart_tx_send("gyro: WHO_AM_I read failed\r\n");
+        return;
+    }
+    uart_tx_printf("gyro: WHO_AM_I 0x%x\r\n", (UINT)device_id);
+    if(mpu6050_is_supported_device(device_id) == FALSE){
+        initialized = FALSE;
+        uart_tx_send("gyro: unsupported device\r\n");
+        return;
+    }
+    if(initialized == FALSE){
+        if(mpu6050_init() == FALSE){
+            uart_tx_send("gyro: initialization failed\r\n");
+            return;
+        }
+        (void)tk_dly_tsk(100);
+        initialized = TRUE;
+    }
+    if(calibrate == TRUE){
+        motor_stop_all();
+        uart_tx_send("gyro: motors stopped; keep board still for 3 seconds\r\n");
+        (void)tk_dly_tsk(1000);
+        if(mpu6050_calibrate_gyro(200U, 10, &x, &y, &z) == FALSE){
+            initialized = FALSE;
+            uart_tx_send("gyro: calibration failed; previous offsets retained\r\n");
+            return;
+        }
+        calibrated = TRUE;
+        uart_tx_printf("gyro: calibration complete; raw offsets x %d, y %d, z %d\r\n", x, y, z);
+        return;
+    }
+    uart_tx_printf("gyro: angular velocity, 1000 mdps = 1 deg/s (%s)\r\n",
+                   calibrated == TRUE ? "calibrated" : "uncalibrated");
+    for(UINT i = 0U; i < count; i++){
+        if(mpu6050_read_raw(&raw) == FALSE){
+            initialized = FALSE;
+            uart_tx_send("gyro: read failed\r\n");
+            return;
+        }
+        if(mpu6050_get_gyro_milli_dps(&raw, &x, &y, &z) == FALSE) return;
+        uart_tx_printf("gyro: x %d, y %d, z %d mdps\r\n", x, y, z);
+        if(i + 1U < count) (void)tk_dly_tsk(100);
+    }
 }

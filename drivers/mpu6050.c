@@ -8,6 +8,7 @@
 #define MPU6050_REG_ACCEL_XOUT_H  0x3BU
 #define MPU6050_REG_INT_STATUS    0x3AU
 #define MPU6050_REG_SMPLRT_DIV    0x19U
+#define MPU6050_REG_GYRO_CONFIG   0x1BU
 #define MPU6050_REG_CONFIG        0x1AU
 #define MPU6050_REG_INT_ENABLE    0x38U
 #define MPU6050_REG_PWR_MGMT_1    0x6BU
@@ -92,7 +93,10 @@ BOOL mpu6050_is_supported_device(UB device_id)
  */
 BOOL mpu6050_init(void)
 {
-    return mpu6050_write_register(MPU6050_REG_PWR_MGMT_1, 0x00U);
+    /* X軸ジャイロPLL、DLPF有効、ジャイロ±250dpsを明示する。 */
+    return mpu6050_write_register(MPU6050_REG_PWR_MGMT_1, 0x01U)
+        && mpu6050_write_register(MPU6050_REG_GYRO_CONFIG, 0x00U)
+        && mpu6050_write_register(MPU6050_REG_CONFIG, 0x03U);
 }
 
 // MPU測定完了を10HzでINT端子から通知する
@@ -168,6 +172,9 @@ BOOL mpu6050_calibrate_gyro(
     if(mpu6050_init() == FALSE){
         return FALSE;
     }
+
+    /* 初期化直後の出力が落ち着いてから平均する。 */
+    if(tk_dly_tsk(100) < E_OK) return FALSE;
 
     for(UINT i = 0U; i < sample_count; i++){
         if(mpu6050_read_raw(&raw_data) == FALSE){

@@ -7,5 +7,6 @@
 
 BOOL vl53l1x_init(void);
 BOOL vl53l1x_read_distance(UH *distance_mm);
+BOOL vl53l1x_get_last_result(UH *raw_mm, UB *raw_status);
 
 #endif /* VL53L1X_H */
