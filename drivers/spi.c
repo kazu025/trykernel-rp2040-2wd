@@ -14,6 +14,28 @@
 #define SPI0_CPSDVSR       2U
 #define SPI0_SCR           62U
 
+/**
+ * @brief SPI0コントローラを初期化する。
+ *
+ * @details
+ * SPI0周辺回路をリセットしてリセット解除を確認した後、
+ * SCK、MOSI、MISOに使用するGPIOをSPI機能へ設定する。
+ *
+ * SPI0は次の設定で初期化する。
+ *
+ * - 8ビットデータ
+ * - Motorola SPI Mode 0
+ * - SPIクロック約1MHz
+ * - ポーリングによる通信
+ * - SPI割込み無効
+ *
+ * 設定中はSPI0を停止し、クロックプリスケーラなどの設定完了後に
+ * SPI0を有効化する。
+ *
+ * @note
+ * SPI0のリセット完了を待つ処理にはタイムアウトがない。
+ * また、チップセレクト（CS）の制御はこの関数では行わない。
+ */
 void spi0_init(void)
 {
     UW reset_mask = RESETS_RESET_SPI0;
@@ -42,7 +64,29 @@ void spi0_init(void)
     /* SPI0を有効にする */
     out_w(SPI0_BASE + SPIx_CR1, SPI_CR1_SSE);
 }
-/* 1バイト送信、1バイト受信 */
+/**
+ * @brief SPI0で1バイト送受信する。
+ *
+ * @details
+ * SPI0の送信FIFOに空きができるまで待機し、tx_dataを送信する。
+ * その後、受信FIFOにデータが到着するまで待機し、
+ * 受信した1バイトをrx_dataへ格納する。
+ *
+ * SPIは全二重通信のため、1バイトを送信すると同時に
+ * 1バイトを受信する。
+ *
+ * @param[in]  tx_data SPI0から送信する1バイトのデータ。
+ * @param[out] rx_data SPI0から受信した1バイトを格納する領域。
+ *
+ * @retval TRUE 送信および受信に成功した。
+ * @retval FALSE rx_dataがNULL、送信FIFOが満杯のままタイムアウト、
+ *               または受信FIFOにデータが到着せずタイムアウトした。
+ *
+ * @note
+ * 待ち時間はSPI0_TIMEOUT_LOOPとCPUの動作速度に依存する。
+ * 受信のみを行う場合でも、SPIのクロックを発生させるために
+ * ダミーデータを送信する必要がある。
+ */
 BOOL spi0_transfer(UB tx_data, UB *rx_data)
 {
     UW count;
@@ -69,8 +113,23 @@ BOOL spi0_transfer(UB tx_data, UB *rx_data)
 
     return FALSE;
 }
-
-/* 送受信が完了し、SPI0がアイドル状態になるまで待つ */
+/**
+ * @brief SPI0の送受信完了とアイドル状態を待つ。
+ *
+ * @details
+ * SPI0のステータスレジスタをポーリングし、
+ * SPI_SR_BSYビットがクリアされるまで待機する。
+ *
+ * SPI_SR_BSYがクリアされると、SPI0が送受信を完了して
+ * アイドル状態になったと判断する。
+ *
+ * @retval TRUE  SPI0がアイドル状態になった。
+ * @retval FALSE SPI0がビジー状態のままタイムアウトした。
+ *
+ * @note
+ * 待ち時間はSPI0_TIMEOUT_LOOPとCPUの動作速度に依存する。
+ * 最終送信データの完了を確認してからCSを解除する場合などに使用する。
+ */
 BOOL spi0_wait_idle(void)
 {
     UW count;

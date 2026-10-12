@@ -166,7 +166,7 @@ static void format_motion_lines(
     }
 }
 
-static void format_temperature_line(INT temperature_milli_c, char *line)
+void format_temperature_line(INT temperature_milli_c, char *line)
 {
     UINT magnitude;
     UINT integer_part;

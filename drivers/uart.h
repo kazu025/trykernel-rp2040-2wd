@@ -6,15 +6,15 @@
  * Low-level register access is kept inside this driver.
  */
 #include <trykernel.h>
-void uart_init(void);
-void uart_rx_irq_enable(void);
-void uart0_irq_handler(void);
-BOOL uart_can_send(void);
-BOOL uart_can_recv(void);
+void uart_init(void);           // UART0を初期化する
+void uart_rx_irq_enable(void);  // UART0受信割り込み有効化する
+void uart0_irq_handler(void);   // UART0受信ハンドラ
+BOOL uart_can_send(void);       // UART送信FIFOに空きがあるかを確認する
+BOOL uart_can_recv(void);       // UART受信FIFOにデータがあるか確認する
 void uart_putc(UB c);           // １バイト送信
 UINT uart_puts(const char *s);  // 文字列送信
-BOOL uart_getc_nonblock(UB *c);
-UB uart_getc(void);
+BOOL uart_getc_nonblock(UB *c); // １バイトノンブロッキング送信
+UB uart_getc(void);             // UARTから１バイト受信
 int uart_rx_getc(UB *data);     // リングバッファから１文字取り出す
 void uart_rxbuf_init(void);         // 受信バッファの初期化
 UW uart_rx_overflow_count(void);    // 受信バッファのオーバーフロー回数を返す

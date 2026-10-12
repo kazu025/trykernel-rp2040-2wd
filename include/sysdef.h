@@ -1,40 +1,68 @@
-
+/**
+ * @file sysdef.h
+ * @brief TryKernel RP2040のハードウェア定義
+ *
+ * @details
+ * RP2040の各ペリフェラルレジスタのベースアドレス、
+ * レジスタオフセット、ビット定義、クロック定数、
+ * 割込み番号などを定義する。
+ *
+ * このファイルで定義された値は、UART、I2C、SPI、PWM、
+ * GPIO、SysTick、NVICなどのドライバから使用される。
+ */
 #ifndef SYSDEF_H
 #define SYSDEF_H
-/*
- *** Try Kernel
- *          システム（ハードウェア）関連共通定義
+
+/**
+ * @name メモリ定義
+ * @{
  */
 
-/* メモリ関連 */
+/** SRAMの先頭アドレス */
 #define SRAM_START              (0x20000000)
-#define SRAM_SIZE               (256*1024)
 
-#define	INITIAL_SP              (SRAM_START + SRAM_SIZE)
+/** SRAMの容量（256 KiB） */
+#define SRAM_SIZE               (256 * 1024)
 
-/* APB ペリフェラル */
-/* Clocks */
+/**
+ * 初期スタックポインタの値。
+ * SRAMの末尾アドレスを使用する。
+ */
+#define INITIAL_SP              (SRAM_START + SRAM_SIZE)
+
+/** @} */
+
+/**
+ * @name クロックペリフェラル
+ * @{
+ */
+/** クロック制御レジスタのベースアドレス */
 #define CLOCKS_BASE             0x40008000
+/** GPOUT0クロック制御レジスタ */
 #define CLK_GPOUT0              (CLOCKS_BASE+0x00)
 #define CLK_GPOUT1              (CLOCKS_BASE+0x0C)
 #define CLK_GPOUT2              (CLOCKS_BASE+0x18)
 #define CLK_GPOUT3              (CLOCKS_BASE+0x24)
 #define CLK_REF	                (CLOCKS_BASE+0x30)
+/** システムクロック制御レジスタ */
 #define CLK_SYS	                (CLOCKS_BASE+0x3C)
+/** 周辺回路クロック制御レジスタ */
 #define CLK_PERI                (CLOCKS_BASE+0x48)
 #define CLK_USB	                (CLOCKS_BASE+0x54)
 #define CLK_ADC	                (CLOCKS_BASE+0x60)
 #define CLK_RTC	                (CLOCKS_BASE+0x6C)
 #define CLK_SYS_RESUS_CTRL      (CLOCKS_BASE+0x78)
 #define CLK_SYS_RESUS_STATUS    (CLOCKS_BASE+0x7C)
-
+/** クロックレジスタ内のCTRLフィールドオフセット */
 #define	CLK_x_CTRL              (0x00)
+/** クロックレジスタ内のDIVフィールドオフセット */
 #define	CLK_x_DIV               (0x04)
 #define	CLK_x_SELECTED          (0x08)
 
 #define CLK_SYS_CTRL_AUXSRC     (0x000000e0)
 #define CLK_SYS_CTRL_SRC        (0x00000001)
 #define CLK_REF_CTRL_SRC        (0x00000003)
+/** クロック有効化ビット */
 #define CLK_CTRL_ENABLE	        (0x00000800)
 
 #define CLK_SYS_CTRL_SRC_AUX	(0x1)
@@ -49,22 +77,35 @@
 #define CLK_KIND_USB            7
 #define CLK_KIND_ADC            8
 #define CLK_KIND_RTC            9
+/** @} */
 
-/* Reset Controler */
+/**
+ * @name リセット制御
+ * @{
+ */
+/** リセット制御レジスタのベースアドレス */
 #define RESETS_BASE             0x4000C000
+/** ペリフェラルリセット制御レジスタ */
 #define RESETS_RESET            (RESETS_BASE+0x0)
 #define RESETS_WDSEL            (RESETS_BASE+0x4)
 #define RESETS_RESET_DONE       (RESETS_BASE+0x8)
-
+/** ADCのリセットビット */
 #define RESETS_RESET_ADC        (0x00000001)
+/** I2C0のリセットビット */
 #define RESETS_RESET_I2C0       (0x00000008)
 #define RESETS_RESET_I2C1       (0x00000010)
+
 #define RESETS_RESET_IO_BANK0   (1<<5)
 #define RESETS_RESET_PADS_BANK0 (1<<8)
 #define RESETS_RESET_PWM        (1<<14)
+/** SPI0のリセットビット */
 #define RESETS_RESET_SPI0       (1<<16)
+/** @} */
 
-/* GPIO */
+/**
+ *  GPIO
+ *  @{
+ */
 #define IO_BANK0_BASE           0x40014000
 #define	GPIO_CTRL(n)            (IO_BANK0_BASE+0x04+(n*8))
 #define IO_BANK0_INTR(n)        (IO_BANK0_BASE+0xF0+((n)*4))
@@ -90,8 +131,11 @@
 #define	GPIO_PDE                (1<<2)
 #define	GPIO_SHEMITT            (1<<1)
 #define	GPIO_SLEWDAST           (1<<0)
-
-/* Crystal Oscillator(XOSC) */
+/** @} */
+/**
+ * Crystal Oscillator(XOSC)
+ * @{
+ */
 #define XOSC_BASE               0x40024000
 #define XOSC_CTRL               (XOSC_BASE+0x00)
 #define XOSC_STATUS             (XOSC_BASE+0x04)
@@ -102,8 +146,13 @@
 #define	XOSC_CTRL_FRANG_1_15MHZ (0x00000AA0)
 
 #define	XOSC_STATUS_STABLE      (0x80000000)
+/** @} */
 
-/* PLL */
+/**
+ * PLL
+ * @{
+ */
+
 #define PLL_SYS_BASE            (0x40028000)
 #define PLL_USB_BASE            (0x4002C000)
 
@@ -118,92 +167,114 @@
 #define	PLL_PWR_POSTDIVPD       (1<<3)
 #define PLL_PRIM_POSTDIV1_LSB   (16)
 #define PLL_PRIM_POSTDIV2_LSB   (12)
-
-/* UART */
+/** @} */
+/**
+ * @name UART
+ * @{
+ */
+/** UART0ベースアドレス */
 #define UART0_BASE              0x40034000
+/** UART1ベースアドレス */
 #define UART1_BASE              0x40038000
 
+/** UARTデータレジスタオフセット */
 #define UARTx_DR                (0x000)
 #define UARTx_RSR_ECR           (0x004)
+/** UARTフラグレジスタオフセット */
 #define UARTx_FR                (0x018)
 #define UARTx_IBRD              (0x024)
 #define UARTx_FBRD              (0x028)
 #define UARTx_LCR_H             (0x02C)
+/** UART制御レジスタオフセット */
 #define UARTx_CR                (0x030)
 #define UARTx_IMSC              (0x038)
 #define UARTx_MIS               (0x040)
 #define UARTx_ICR               (0x044)
 
+/** UART受信FIFO有効ビット */
 #define UART_CR_RXE             (1<<9)
 #define UART_CR_TXE             (1<<8)
 #define UART_CR_EN              (1<<0)
-#define UART_FR_RXFE            (1<<4)  // Receive FIFO Empty (1: empty, 0: not empty)
-#define UART_FR_TXFF            (1<<5)  // Transmit FIFO Full（1: full, 0: not full）
+#define UART_FR_RXFE            (1<<4)  /**< Receive FIFO Empty (1: empty, 0: not empty) */
+#define UART_FR_TXFF            (1<<5)  /**<  Transmit FIFO Full（1: full, 0: not full） */
 #define UART_RSR_OE             (1<<3)
 
-#define UART_IMSC_RXIM          (1<<4)  // Receive FIFO interrupt mask
-#define UART_IMSC_RTIM          (1<<6)  // Receive timeout interrupt mask
-#define UART_IMSC_OEIM          (1<<10) // Overrun error interrupt mask
+#define UART_IMSC_RXIM          (1<<4)  /**<  Receive FIFO interrupt mask */
+#define UART_IMSC_RTIM          (1<<6)  /**<  Receive timeout interrupt mask */
+#define UART_IMSC_OEIM          (1<<10) /**<  Overrun error interrupt mask */
 
-#define UART_MIS_RXMIS          (1<<4)  // Receive FIFO masked interrupt status
-#define UART_MIS_RTMIS          (1<<6)  // Receive timeout masked interrupt status
-#define UART_MIS_OEMIS          (1<<10) // Overrun error masked interrupt status
+#define UART_MIS_RXMIS          (1<<4)  /**<  Receive FIFO masked interrupt status */
+#define UART_MIS_RTMIS          (1<<6)  /**<  Receive timeout masked interrupt status */
+#define UART_MIS_OEMIS          (1<<10) /**<  Overrun error masked interrupt status */
 
-#define UART_ICR_RXIC           (1<<4)  // Receive FIFO interrupt clear
-#define UART_ICR_RTIC           (1<<6)  // Receive timeout interrupt clear
-#define UART_ICR_OEIC           (1<<10) // Overrun error interrupt clear
-
-/* I2C */
+#define UART_ICR_RXIC           (1<<4)  /**<  Receive FIFO interrupt clear */
+#define UART_ICR_RTIC           (1<<6)  /**<  Receive timeout interrupt clear */
+#define UART_ICR_OEIC           (1<<10) /**<  Overrun error interrupt clear */
+/** @} */
+/**
+ * I2C
+ * @{
+ */
+/** I2C0のベースアドレス */
 #define I2C0_BASE                  0x40044000
 #define I2C1_BASE                  0x40048000
-
-#define I2Cx_CON                   0x000 // マスター、通信速度などの動作設定
-#define I2Cx_TAR                   0x004 // 通信相手の7ビットアドレス
-#define I2Cx_DATA_CMD              0x010 // 送受信データと読み書き命令
-#define I2Cx_FS_SCL_HCNT           0x01C // Fast mode時のSCL High期間
-#define I2Cx_FS_SCL_LCNT           0x020 // Fast mode時のSCL Low期間
-#define I2Cx_INTR_MASK             0x030 // 割込みマスク
-#define I2Cx_RAW_INTR_STAT         0x034 // マスク前の割込み状態
-#define I2Cx_RX_TL                 0x038 // 受信FIFO割込みのしきい値
-#define I2Cx_TX_TL                 0x03C // 送信FIFO割込みのしきい値
-#define I2Cx_CLR_INTR              0x040 // 全割込みのクリア（読み出しでクリア）
-#define I2Cx_CLR_TX_ABRT           0x054 // 送信中断割込みのクリア（読み出しでクリア）
-#define I2Cx_CLR_STOP_DET          0x060 // STOP検出割込みのクリア（読み出しでクリア）
-#define I2Cx_ENABLE                0x06C // I2Cコントローラの有効／無効設定
-#define I2Cx_STATUS                0x070 // I2Cコントローラの動作状態
-#define I2Cx_TXFLR                 0x074 // 送信FIFO内のデータ数
-#define I2Cx_RXFLR                 0x078 // 受信FIFO内のデータ数
-#define I2Cx_SDA_HOLD              0x07C // SDAのホールド時間
-#define I2Cx_TX_ABRT_SOURCE        0x080 // 送信中断の原因
-#define I2Cx_ENABLE_STATUS         0x09C // I2Cコントローラの有効状態
-#define I2Cx_FS_SPKLEN             0x0A0 // Fast mode時のSCLノイズ除去幅
+/** I2C制御レジスタ */
+#define I2Cx_CON                   0x000 /**<  マスター、通信速度などの動作設定 */
+/** I2Cターゲットアドレスレジスタ */
+#define I2Cx_TAR                   0x004 /**<  通信相手の7ビットアドレス */
+/** I2Cデータ送受信レジスタ */
+#define I2Cx_DATA_CMD              0x010 /**<  送受信データと読み書き命令 */
+#define I2Cx_FS_SCL_HCNT           0x01C /**<  Fast mode時のSCL High期間 */
+#define I2Cx_FS_SCL_LCNT           0x020 /**<  Fast mode時のSCL Low期間 */
+#define I2Cx_INTR_MASK             0x030 /**<  割込みマスク */
+#define I2Cx_RAW_INTR_STAT         0x034 /**<  マスク前の割込み状態 */
+#define I2Cx_RX_TL                 0x038 /**<  受信FIFO割込みのしきい値 */
+#define I2Cx_TX_TL                 0x03C /**<  送信FIFO割込みのしきい値 */
+#define I2Cx_CLR_INTR              0x040 /**<  全割込みのクリア（読み出しでクリア） */
+#define I2Cx_CLR_TX_ABRT           0x054 /**<  送信中断割込みのクリア（読み出しでクリア） */
+#define I2Cx_CLR_STOP_DET          0x060 /**<  STOP検出割込みのクリア（読み出しでクリア） */
+#define I2Cx_ENABLE                0x06C /**<  I2Cコントローラの有効／無効設定 */
+#define I2Cx_STATUS                0x070 /**<  I2Cコントローラの動作状態 */
+#define I2Cx_TXFLR                 0x074 /**<  送信FIFO内のデータ数 */
+#define I2Cx_RXFLR                 0x078 /**<  受信FIFO内のデータ数 */
+#define I2Cx_SDA_HOLD              0x07C /**<  SDAのホールド時間 */
+#define I2Cx_TX_ABRT_SOURCE        0x080 /**<  送信中断の原因 */
+#define I2Cx_ENABLE_STATUS         0x09C /**<  I2Cコントローラの有効状態 */
+#define I2Cx_FS_SPKLEN             0x0A0 /**<  Fast mode時のSCLノイズ除去幅 */
 
 /* IC_CON */
-#define I2C_CON_MASTER_MODE        (1U << 0) // マスターモード
-#define I2C_CON_SPEED_FAST         (2U << 1) // Fast mode設定
-#define I2C_CON_RESTART_EN         (1U << 5) // RESTART条件を有効化
-#define I2C_CON_SLAVE_DISABLE      (1U << 6) // スレーブ機能を無効化
-#define I2C_CON_TX_EMPTY_CTRL      (1U << 8) // 送信完了後にTX_EMPTYを通知
+#define I2C_CON_MASTER_MODE        (1U << 0) /**<  マスターモード */
+#define I2C_CON_SPEED_FAST         (2U << 1) /**<  Fast mode設定 */
+#define I2C_CON_RESTART_EN         (1U << 5) /**<  RESTART条件を有効化 */
+#define I2C_CON_SLAVE_DISABLE      (1U << 6) /**<  スレーブ機能を無効化 */
+#define I2C_CON_TX_EMPTY_CTRL      (1U << 8) /**<  送信完了後にTX_EMPTYを通知 */
 
 /* IC_DATA_CMD */
-#define I2C_DATA_CMD_READ          (1U << 8)  // 1:読み出し、0:書き込み
-#define I2C_DATA_CMD_STOP          (1U << 9)  // 転送後にSTOP条件を生成
-#define I2C_DATA_CMD_RESTART       (1U << 10) // 転送前にRESTART条件を生成
+#define I2C_DATA_CMD_READ          (1U << 8)  /**<  1:読み出し、0:書き込み */
+#define I2C_DATA_CMD_STOP          (1U << 9)  /**<  転送後にSTOP条件を生成 */
+#define I2C_DATA_CMD_RESTART       (1U << 10) /**<  転送前にRESTART条件を生成 */
 
 /* IC_RAW_INTR_STAT */
-#define I2C_RAW_TX_EMPTY           (1U << 4)  // 送信FIFOが空
-#define I2C_RAW_TX_ABRT            (1U << 6)  // 送信中断
-#define I2C_RAW_STOP_DET           (1U << 9)  // STOP条件検出
+#define I2C_RAW_TX_EMPTY           (1U << 4)  /**<  送信FIFOが空 */
+#define I2C_RAW_TX_ABRT            (1U << 6)  /**<  送信中断 */
+#define I2C_RAW_STOP_DET           (1U << 9)  /**<  STOP条件検出 */
 
-/* IC_ENABLE / IC_ENABLE_STATUS */
-#define I2C_ENABLE_EN              (1U << 0) // I2Cコントローラ有効
+#define I2C_ENABLE_EN              (1U << 0) /**<  I2Cコントローラ有効 */
+/** @} */
 
-/* SPI (ARM PrimeCell SSP) */
+/**
+ * SPI (ARM PrimeCell SSP)
+ * @{
+ */
+/** SPI0のベースアドレス */
 #define SPI0_BASE                  0x4003C000
-
+/** SPI制御レジスタ0 */
 #define SPIx_CR0                   0x000
+/** SPI制御レジスタ1 */
 #define SPIx_CR1                   0x004
+/** SPIデータレジスタ */
 #define SPIx_DR                    0x008
+/** SPIステータスレジスタ */
 #define SPIx_SR                    0x00C
 #define SPIx_CPSR                  0x010
 #define SPIx_IMSC                  0x014
@@ -211,13 +282,20 @@
 
 #define SPI_CR0_DSS_8BIT           0x07U
 #define SPI_CR0_SCR(n)             ((UW)(n) << 8)
+/** SPI有効化ビット */
 #define SPI_CR1_SSE                (1U << 1)
 #define SPI_SR_TFE                 (1U << 0)
+/** 送信FIFOに空きがあることを示すビット */
 #define SPI_SR_TNF                 (1U << 1)
+/** 受信FIFOにデータがあることを示すビット */
 #define SPI_SR_RNE                 (1U << 2)
+/** SPIが動作中であることを示すビット */
 #define SPI_SR_BSY                 (1U << 4)
-
-/* PWM */
+/** @} */
+/**
+ * PWM
+ * @{
+ */
 #define PWM_BASE                    0x40050000
 #define PWM_SLICE_STRIDE            0x14U
 #define PWM_CSR(slice)              (PWM_BASE + ((slice) * PWM_SLICE_STRIDE) + 0x00U)
@@ -229,8 +307,12 @@
 #define PWM_CSR_EN                  (1U << 0)
 #define PWM_DIV_INT(value)          ((UW)(value) << 4)
 #define PWM_CC_B(level)             ((UW)(level) << 16)
+/** @} */
 
-/* IOPORT レジスタ */
+/**
+ * IOPORT レジスタ/
+ * @{
+ */
 #define SIO_BASE                0xD0000000
 #define	GPIO_IN                 (SIO_BASE+0x04)
 #define GPIO_OUT                (SIO_BASE+0x10)
@@ -240,8 +322,11 @@
 #define GPIO_OE_SET             (SIO_BASE+0x24)
 #define GPIO_OE_CLR             (SIO_BASE+0x28)
 #define GPIO_OE_XOR             (SIO_BASE+0x2C)
-
-/* SysTick レジスタ */
+/** @} */
+/**
+ * ISysTick レジスタ
+ * @{
+ */
 #define SYST_CSR                (0xE000E010)
 #define SYST_RVR                (0xE000E014)
 #define SYST_CVR                (0xE000E018)
@@ -250,14 +335,19 @@
 #define SYST_CSR_CLKSOURCE      (1<<2)
 #define SYST_CSR_TICKINT        (1<<1)
 #define SYST_CSR_ENABLE	        (1<<0)
+/** @} */
 
-/* クロック周波数 */
+/**
+ * クロック周波数
+ * @{
+ */
 #define	CLOCK_XOSC              (12000000UL)
 #define	CLOCK_REF               (CLOCK_XOSC)
 #define	CLOCK_PERI              (CLOCK_SYS)
 
 #define	XOSC_MHz                (12)
 #define	XOSC_KHz                (XOSC_MHz*1000)
+/** @} */
 
 #define	TMCLK_MHz               (125)
 #define	TMCLK_KHz               (TMCLK_MHz*1000)

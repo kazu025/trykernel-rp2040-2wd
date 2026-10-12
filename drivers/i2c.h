@@ -15,18 +15,8 @@ UB i2c0_last_error_address_get(void);
 UB i2c0_last_error_operation_get(void);
 UB i2c0_last_error_stage_get(void);
 UW i2c0_last_abort_source_get(void);
-BOOL i2c0_write(
-    UB addr,
-    const UB *data,
-    UINT size
-);
-
-BOOL i2c0_write_read(
-    UB addr,
-    const UB *write_data,
-    UINT write_size,
-    UB *read_data,
-    UINT read_size
-);
+BOOL i2c0_write(UB addr, const UB *data, UINT size);
+BOOL i2c0_write_read(UB addr, const UB *write_data,
+    UINT write_size, UB *read_data, UINT read_size);
 
 #endif /* RP2040_I2C_H */

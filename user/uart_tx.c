@@ -1,57 +1,66 @@
+/**
+ * @file    uart_tx.c
+ * @brief   UART送信キューと送信処理を実装する。
+ *
+ * @details
+ * 送信要求をリングキューへ登録し、イベントフラグで
+ * UART送信タスクへ通知する。
+ * UART送信タスクはキューからメッセージを取り出し、
+ * UARTドライバを使用して送信する。
+ *
+ * @author  Kazu
+ * @date    2026-10-03
+ */
+
+/*
+ * 送信処理の流れ:
+ *
+ * uart_tx_send()
+ *     -> 送信キューへ登録
+ *     -> イベントフラグで送信タスクを起床
+ *     -> uart_tx_receive()
+ *     -> uart_puts()
+ *     -> UART FIFOへ送信
+ */
 #include <trykernel.h>
 
 #include "uart_tx.h"
 #include "uart_tx_internal.h"
 #include "mini_printf.h"
-/*
- * UART送信キュー設定　登録最大件数
- */
-#define UART_TX_QUEUE_SIZE      32U
 
-/*
- * UART送信イベント
- */
-#define UART_TX_EVENT_DATA  (1U << 0)
+#define UART_TX_QUEUE_SIZE      32U     //!< 送信キューの最大件数
+#define UART_TX_EVENT_DATA  (1U << 0)   //!< データ到着イベント
 
 typedef struct {
-    /* メッセージサイズ（固定長） */
-    char text[UART_TX_MESSAGE_SIZE];
+    char text[UART_TX_MESSAGE_SIZE];    //!< 送信メッセージ
 } UART_TX_MESSAGE;
 
-/*
- * UART送信キュー
- */
-static UART_TX_MESSAGE uart_tx_queue[UART_TX_QUEUE_SIZE];
+static UART_TX_MESSAGE uart_tx_queue[UART_TX_QUEUE_SIZE]; //!< 送信キューのリングバッファ
 
-/*
- * キュー管理変数
- */
-static UW uart_tx_head;     // 次に書き込む位置
-static UW uart_tx_tail;     // 次に読み出す位置
-static UW uart_tx_count;    // 現在登録されている件数
+static UW uart_tx_head;     //!< キュー管理変数:次に書き込む位置
+static UW uart_tx_tail;     //!< キュー管理変数:次に読み出す位置
+static UW uart_tx_count;    //!< キュー管理変数:現在登録されている件数
 
-/*
- * キュー保護用セマフォ
- */
-static ID uart_tx_semid;
-/* static 変数*/
-static volatile UW uart_tx_overflow_count; // 送信キューオーバーフローカウント
-/*
- * UART送信タスク通知用イベントフラグ
- */
-static ID uart_tx_flgid;
+static ID uart_tx_semid;    //!< キュー保護用セマフォID
+
+static volatile UW uart_tx_overflow_count; //!< 送信キューオーバーフローカウント
+
+static ID uart_tx_flgid; //!< 送信タスク通知用イベントフラグID
 
 /* 内部関数 */
-static ER uart_tx_queue_push(const char *text);
-static ER uart_tx_queue_pop(char *text);
-static void uart_tx_copy_string(
-    char *dst,
-    const char *src,
-    UW size
-);
+static ER uart_tx_queue_push(const char *text); //!< 送信キューにデータを追加
+static ER uart_tx_queue_pop(char *text);        //!< 送信キューからデータを取得
+static void uart_tx_copy_string(char *dst, const char *src, UW size); //!< 文字列をコピー
 
-/*
- * UART送信機能の初期化
+/**
+ * @brief UART送信機能を初期化する。
+ *
+ * キュー管理変数を初期化し、キュー保護用セマフォと
+ * 送信タスク通知用イベントフラグを生成する。
+ *
+ * @retval E_OK 初期化に成功した。
+ * @retval E_ID オブジェクトIDを取得できなかった。
+ * @retval E_LIMIT カーネルオブジェクト数の上限に達した。
  */
 ER uart_tx_init(void)
 {
@@ -78,7 +87,6 @@ ER uart_tx_init(void)
     uart_tx_tail  = 0;
     uart_tx_count = 0;
     /* overflowカウント初期化 */
-
     uart_tx_overflow_count = 0;
     /*
      * キュー保護用セマフォを生成
@@ -98,34 +106,44 @@ ER uart_tx_init(void)
 
     return E_OK;
 }
-
-/*
- * UART送信キューへ文字列を登録
+/**
+ * @brief  他のタスクが送信要求を登録するためのAPI
+ *
+ * 1. 送信キューをロックするためにセマフォを取得する。
+ * 2. 送信キューに文字列を登録する。
+ * 3. 送信キューのロックを解除するためにセマフォを解放する。
+ * 4. UART送信タスクへデータ到着を通知するためにイベントフラグをセットする。
+ *
+ * @param[in] text 送信するNULL終端文字列。
+ *
+ * @return ER  エラーコード
+ * @retval E_OK   送信データキューに登録できた。
+ * @retval E_PAR  パラメータに問題があった。
+ * @retval E_CTX  割込みコンテキストから呼び出された。
+ * @retval E_ID  ID番号が不正だった。
+ * @retval E_NOEXS 指定されたセマフォが存在しなかった。
+ * @retval E_TMOUT タイムアウトが発生した。
+ * @retval E_QOVR キューが満杯だった。
  */
 ER uart_tx_send(const char *text)
 {
     ER err;
     ER unlock_err;
-
+    // キュー保護用セマフォを取得する。
+    // セマフォが解放されるまで無期限に待つ。
     if (text == NULL) {
         return E_PAR;
     }
 
-    /*
-     * キューをロック:セマフォ取得(無限待ち)
-     */
+    // キューをロック:セマフォ取得(無限待ち)
     err = tk_wai_sem(uart_tx_semid, 1, TMO_FEVR);
     if (err < E_OK) {
         return err;
     }
-    /*
-     * 文字列をリングキューに追加する
-     */
+    // 文字列をリングキューに追加する
     err = uart_tx_queue_push(text);
 
-    /*
-     * pushの成否に関係なくロックを解除する
-     */
+     // pushの成否に関係なくロックを解除する
     unlock_err = tk_sig_sem(uart_tx_semid, 1);
 
     if (err < E_OK) {
@@ -136,22 +154,32 @@ ER uart_tx_send(const char *text)
         return unlock_err;
     }
 
-    /*
-     * UART送信タスクへデータ到着を通知
-     */
+    // UART送信タスクへデータ到着を通知
     return tk_set_flg(
         uart_tx_flgid,
         UART_TX_EVENT_DATA
     );
 }
-/*
- * 送信キューオーバーフローカウント取得
+/**
+ * @brief UART送信オーバーフローカウントを取得するAPI
+ *
+ * @return UW  オーバーフローカウント
  */
 UW uart_tx_get_overflow_count(void){
     return uart_tx_overflow_count;
 }
-/*
- * Uart送信データの登録通知を待つ
+/**
+ * @brief 送信タスクがデータ到着を待つためのAPI
+ * 送信タスクはこのAPIを呼び出して、送信要求が登録されるまで待つ(停止状態)
+ * TWF_BITCLRを指定しているので、送信要求が登録されると
+ * イベントフラグの該当ビットがクリアされる。
+ *
+ * @param なし
+ * @return ER  エラーコード
+ * @retval E_OK   送信データ到着イベントを受け取った
+ * @retval E_CTX  割込みコンテキストから呼び出された。
+ * @retval E_ID  ID番号が不正だった。
+ * @retval E_PAR  パラメータに問題があった。
  */
 ER uart_tx_wait(void){
     UINT flgptn;
@@ -161,8 +189,16 @@ ER uart_tx_wait(void){
         &flgptn,
         TMO_FEVR);              // イベントが来るまで無限待ち
 }
-/*
- * 文字列を送信キューに登録
+/**
+ * @brief 文字列をフォーマットして送信するAPI
+ * 簡易的なprintfのような機能を提供する。
+
+ * @param format フォーマット文字列
+ * @param ... 可変長引数
+ *
+ * @return ER  エラーコード
+ * @retval E_OK   送信に成功した。
+ * @retval <0 mini_vsnprintfのエラーコード
  */
 ER uart_tx_printf(const char *format, ...){
     char text[UART_TX_MESSAGE_SIZE];
@@ -180,8 +216,18 @@ ER uart_tx_printf(const char *format, ...){
     }
     return uart_tx_send(text);
 }
-/*
- * キューをロックして1件取得
+/**
+ * @brief UART送信キューからメッセージを1件取り出す。
+ *
+ * キューをセマフォで保護し、先頭のメッセージを
+ * 呼び出し側のバッファへコピーする。
+ *
+ * @param[out] text 取り出した文字列を格納するバッファ。
+ *                  UART_TX_MESSAGE_SIZEバイト以上必要。
+ *
+ * @retval E_OK    メッセージを取得した。
+ * @retval E_PAR   textがNULLだった。
+ * @retval E_TMOUT 送信キューが空だった。
  */
 ER uart_tx_receive(char *text)
 {
@@ -197,7 +243,7 @@ ER uart_tx_receive(char *text)
     }
     /* キューから一件取得 */
     err = uart_tx_queue_pop(text);
-    /* 開放 */
+    /* 解放 */
     unlock_err = tk_sig_sem(uart_tx_semid, 1);
 
     if (err < E_OK) {
@@ -206,13 +252,16 @@ ER uart_tx_receive(char *text)
 
     return unlock_err;
 }
-
-
-/* -------------------------------------------------- */
-/*
- * UART送信キューへ1件追加
+/**
+ * @brief 送信キューへメッセージを1件追加する。
  *
- * 呼び出し側でセマフォを取得していること。
+ * この関数はキュー保護用セマフォを取得した状態で
+ * 呼び出す必要がある。
+ *
+ * @param[in] text 追加するNULL終端文字列。
+ *
+ * @retval E_OK   メッセージを追加した。
+ * @retval E_QOVR 送信キューが満杯だった。
  */
 static ER uart_tx_queue_push(const char *text)
 {
@@ -237,11 +286,16 @@ static ER uart_tx_queue_push(const char *text)
 
     return E_OK;
 }
-
-/*
- * UART送信キューから1件取得
+/**
+ * @brief   Uart送信キューから1件取得する内部関数
+ * 送信キューから1件取得する内部関数
  *
- * 呼び出し側でセマフォを取得していること。
+ * @param[out] text 取得した文字列を格納するバッファ。
+ *                  UART_TX_MESSAGE_SIZEバイト以上必要。
+ * @return ER  エラーコード
+ * @retval E_OK   送信に成功した。
+ * @retval E_TMOUT タイムアウト
+ * @retval E_PAR  パラメータに問題があった。
  */
 static ER uart_tx_queue_pop(char *text)
 {
@@ -249,7 +303,7 @@ static ER uart_tx_queue_pop(char *text)
         return E_PAR;
     }
 
-    if (uart_tx_count == 0) { // キーが空
+    if (uart_tx_count == 0) { // キューが空
         return E_TMOUT;
     }
     /* 現在のtailから文字列を読み出す */
@@ -269,9 +323,16 @@ static ER uart_tx_queue_pop(char *text)
     return E_OK;
 }
 
-
-/*
- * 最大sizeバイトの領域へ文字列をコピー
+/**
+ * @brief 指定されたサイズ内で文字列をコピーする。
+ *
+ * size - 1文字までコピーし、コピー先の末尾に
+ * 必ずNULL文字を格納する。
+ * コピー先またはコピー元がNULLの場合は何もしない。
+ *
+ * @param[out] dst 文字列のコピー先。
+ * @param[in]  src 文字列のコピー元。
+ * @param[in]  size コピー先バッファのサイズ。
  */
 static void uart_tx_copy_string(char *dst, const char *src, UW size){
     UW i;
