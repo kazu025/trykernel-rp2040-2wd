@@ -19,11 +19,24 @@ WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWIS
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* 
+/**
+ * @file    boot2.c
+ * @brief   RP2040のQSPI Flash起動に使用する第2段階ブートコードを格納する。
+ *
+ * @details Pico SDK由来のブートコードを.boot2セクションへ配置する。
+ *          このコードはリセット直後に実行され、外部Flashから以降のプログラムを
+ *          読み出して実行できる状態を準備する。直前のライセンス条項に従う。
+ */
+
+/*
  *** Try Kernel
  *      ブート第二ステージ プログラム (Pico C/C++ SDKより)
 */
 
+/**
+ * @brief QSPI Flash起動用の第2段階ブートコード。
+ * @details リンカスクリプトによりFlash先頭の.boot2セクションへ配置される。
+ */
 const unsigned char boot2[]__attribute__((section(".boot2"))) = {
 0x00, 0xb5, 0x32, 0x4b, 0x21, 0x20, 0x58, 0x60, 0x98, 0x68, 0x02, 0x21, 0x88, 0x43, 0x98, 0x60,
 0xd8, 0x60, 0x18, 0x61, 0x58, 0x61, 0x2e, 0x4b, 0x00, 0x21, 0x99, 0x60, 0x02, 0x21, 0x59, 0x61,

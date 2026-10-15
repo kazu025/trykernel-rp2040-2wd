@@ -1,3 +1,12 @@
+/**
+ * @file    task_uarttx.c
+ * @brief   送信キューのメッセージをUARTへ出力するタスクを実装する。
+ *
+ * @details
+ * 送信要求の通知を待ち、キュー内のメッセージを取り出してUARTドライバへ渡す。
+ * UARTへの出力中は送信同期用セマフォを取得し、複数の処理による出力の混在を防ぐ。
+ */
+
 #include <trykernel.h>
 #include "uart_tx_internal.h"
 #include "uart.h"

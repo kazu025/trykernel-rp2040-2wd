@@ -1,18 +1,26 @@
-/*
- * INA226 current, voltage and power monitor driver
+/**
+ * @file    ina226.c
+ * @brief   INA226の識別情報、バス電圧、シャント電圧と電流を取得する。
+ * @details I2Cで16ビットレジスターを読み出し、電圧を整数単位へ変換する。
+ *          電流は基板上のR100（0.1 Ω）シャント抵抗を前提に生データから算出する。
  */
 #include <trykernel.h>
 #include "i2c.h"
 #include "ina226.h"
 
-#define INA226_REG_MANUFACTURER_ID  0xFEU   // メーカーIDレジスタのアドレス
-#define INA226_REG_DIE_ID           0xFFU   // デバイスIDレジスタのアドレス
-#define INA226_REG_BUS_VOLTAGE      0x02U   // bus電圧レジスタのアドレス
-#define INA226_REG_SHUNT_VOLTAGE    0x01U   // シャント抵抗両端電圧レジスタのアドレス
-#define INA226_SHUNT_RESISTANCE_MILLIOHM  100
+#define INA226_REG_MANUFACTURER_ID  0xFEU //!< メーカーIDレジスターのアドレス。
+#define INA226_REG_DIE_ID           0xFFU //!< デバイスIDレジスターのアドレス。
+#define INA226_REG_BUS_VOLTAGE      0x02U //!< バス電圧レジスターのアドレス。
+#define INA226_REG_SHUNT_VOLTAGE    0x01U //!< シャント抵抗両端電圧レジスターのアドレス。
+#define INA226_SHUNT_RESISTANCE_MILLIOHM  100 //!< 想定するシャント抵抗値（mΩ）。現在の電流換算式では直接参照しない。
 
-/*
- * ビッグエンディアンの16ビットレジスタを読み出す
+/**
+ * @brief 上位バイト先行の16ビットレジスター値を読み出す。
+ * @param[in] register_address 読み出すレジスターのアドレス。下位8ビットを使用する。
+ * @param[out] value 読み出した符号なし16ビット値の格納先。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE valueがNULL、またはI2C通信に失敗した。
+ * @note 失敗時は出力値を変更しない。
  */
 static BOOL ina226_read_register(UINT register_address, UINT *value)
 {
@@ -35,8 +43,14 @@ static BOOL ina226_read_register(UINT register_address, UINT *value)
     return TRUE;
 }
 
-/*
- * Manufacturer IDとDie IDを読み出す
+/**
+ * @brief メーカーIDとデバイスIDを読み出す。
+ * @param[out] manufacturer_id メーカーIDの格納先。
+ * @param[out] die_id デバイスIDの格納先。
+ * @retval TRUE 両方のIDを読み出した。
+ * @retval FALSE 引数がNULL、またはいずれかの読み出しに失敗した。
+ * @note IDと期待値の照合は行わない。デバイスIDの読み出し失敗時も、
+ *       先に取得したメーカーIDは出力に反映される。
  */
 BOOL ina226_read_ids(UINT *manufacturer_id, UINT *die_id)
 {
@@ -47,10 +61,14 @@ BOOL ina226_read_ids(UINT *manufacturer_id, UINT *die_id)
         && ina226_read_register(INA226_REG_DIE_ID, die_id);
 }
 
-/*
- * バス電圧の生データとmV換算値を読み出す
- *
- * INA226のバス電圧は1LSBあたり1.25mV。
+/**
+ * @brief バス電圧の生データとミリボルト換算値を取得する。
+ * @param[out] raw_value バス電圧レジスターの生データ格納先。
+ * @param[out] voltage_mv バス電圧（mV）の格納先。
+ * @retval TRUE 読み出しと換算に成功した。
+ * @retval FALSE 引数がNULL、またはI2C通信に失敗した。
+ * @details 1 LSB = 1.25 mVとして換算し、1 mV未満を切り捨てる。
+ * @note 失敗時は出力値を変更しない。
  */
 BOOL ina226_read_bus_voltage(UINT *raw_value, UW *voltage_mv)
 {
@@ -67,11 +85,16 @@ BOOL ina226_read_bus_voltage(UINT *raw_value, UW *voltage_mv)
     return TRUE;
 }
 
-/*
- * シャント電圧と、基板上のR100（0.1Ω）から求めた電流を読み出す
- *
- * シャント電圧: 1LSB = 2.5uV
- * 電流: uA = uV * 1000 / mΩ
+/**
+ * @brief シャント電圧を読み出し、R100抵抗を前提とした電流を算出する。
+ * @param[out] raw_value 符号付き16ビットとして解釈した生データの格納先。
+ * @param[out] shunt_voltage_uv シャント電圧（µV）の格納先。
+ * @param[out] current_ua 電流（µA）の格納先。
+ * @retval TRUE 読み出しと換算に成功した。
+ * @retval FALSE 引数がNULL、またはI2C通信に失敗した。
+ * @details 電圧は1 LSB = 2.5 µVとして整数へ変換する。電流は0.1 Ωの
+ *          抵抗を前提に、生データへ25を乗じて算出する。負の値も保持する。
+ * @note 失敗時は出力値を変更しない。
  */
 BOOL ina226_read_shunt(
     INT *raw_value,

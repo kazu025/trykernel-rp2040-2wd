@@ -1,3 +1,16 @@
+/**
+ * @file    mini_printf.c
+ * @brief   小規模な書式付き文字列生成機能を実装する。
+ *
+ * @details
+ * 標準ライブラリのprintf系関数に依存せず、指定された出力バッファへ
+ * 書式付き文字列を生成する。文字列、文字、符号付き10進数、符号なし
+ * 10進数、16進数、およびパーセント記号の書式指定に対応する。
+ * バッファが不足する場合は格納可能な範囲まで出力し、必要な出力文字数を
+ * 戻り値で通知する。
+ *
+ */
+
 #include <trykernel.h>
 #include <stdarg.h>
 
@@ -19,8 +32,13 @@ static void mini_output_string(MINI_OUTPUT* out, const char *text);
 static void mini_output_unsigned(MINI_OUTPUT* out, UINT value, UINT base);
 static void mini_output_signed(MINI_OUTPUT* out, INT value);
 
-/*
- * １文字を出力バッファへ追加
+
+/**
+ * @brief 1文字を出力状態へ追加する。
+ * @param[in,out] out 出力先バッファと文字数を管理する状態。
+ * @param[in] ch 追加する文字。
+ * @details バッファに空きがあれば終端文字用の領域を残して格納し、
+ *          格納の可否にかかわらず必要な出力文字数を加算する。
  */
 static void mini_output_char(MINI_OUTPUT* out, char ch){
     /*
@@ -33,8 +51,10 @@ static void mini_output_char(MINI_OUTPUT* out, char ch){
     }
     out->total++;
 }
-/*
- * 文字列を出力バッファへ追加
+/**
+ * @brief 文字列を出力状態へ追加する。
+ * @param[in,out] out 出力先バッファと文字数を管理する状態。
+ * @param[in] text 追加する文字列。NULLの場合は "(null)" として出力する。
  */
 static void mini_output_string(MINI_OUTPUT* out, const char *text){
     if (text == NULL){
@@ -45,8 +65,13 @@ static void mini_output_string(MINI_OUTPUT* out, const char *text){
         text++;
      }
 }
-/*
- * 符号なし整数を指定進数で出力
+
+/**
+ * @brief 符号なし整数を指定した基数で出力状態へ追加する。
+ * @param[in,out] out 出力先バッファと文字数を管理する状態。
+ * @param[in] value 変換する整数。
+ * @param[in] base 使用する基数（呼び出し元では10または16）。
+ * @details 数字は小文字の16進数字を用い、桁の順序を整えて出力する。
  */
 static void mini_output_unsigned(MINI_OUTPUT* out, UINT value, UINT base){
     static const char digits[] = "0123456789abcdef";
@@ -69,8 +94,11 @@ static void mini_output_unsigned(MINI_OUTPUT* out, UINT value, UINT base){
         mini_output_char(out, work[count]);
     }
 }
-/*
- * 符号付き10進数
+/**
+ * @brief 符号付き整数を10進数として出力状態へ追加する。
+ * @param[in,out] out 出力先バッファと文字数を管理する状態。
+ * @param[in] value 変換する整数。
+ * @details INTの最小値も安全に絶対値へ変換できるように処理する。
  */
 static void mini_output_signed(MINI_OUTPUT* out, INT value){
     UINT magnitude;
@@ -87,8 +115,16 @@ static void mini_output_signed(MINI_OUTPUT* out, INT value){
     }
     mini_output_unsigned(out, magnitude, 10U);
 }
-/*
- * 可変長引数リストから文字列を整形
+/**
+ * @brief va_listを使って書式付き文字列をバッファへ生成する。
+ * @param[out] buf 出力先バッファ。sizeが0の場合はNULLを指定できる。
+ * @param[in] size 出力先バッファのサイズ（終端文字を含む）。
+ * @param[in] format 書式文字列。%s、%c、%d、%u、%x、%%に対応する。
+ * @param[in] args 書式指定子に対応する可変長引数リスト。
+ * @return 終端文字を除く、バッファサイズにかかわらず生成しようとした文字数。
+ * @retval E_PAR formatがNULL、またはbufがNULLかつsizeが0より大きい。
+ * @details sizeが0より大きい場合、出力はバッファに収まる範囲へ切り詰め、
+ *          必ずNULL終端する。未対応の書式指定子は「%」と指定文字をそのまま出力する。
  */
 INT mini_vsnprintf(char *buf, UW size, const char *format, va_list args){
     MINI_OUTPUT out;
@@ -153,8 +189,15 @@ INT mini_vsnprintf(char *buf, UW size, const char *format, va_list args){
     return (INT)out.total;
 }
 
-/*
- * 可変長引数を受け取って文字列を整形
+/**
+ * @brief 可変長引数を受け取り、書式付き文字列をバッファへ生成する。
+ * @param[out] buf 出力先バッファ。sizeが0の場合はNULLを指定できる。
+ * @param[in] size 出力先バッファのサイズ（終端文字を含む）。
+ * @param[in] format 書式文字列。%s、%c、%d、%u、%x、%%に対応する。
+ * @param[in] ... 書式指定子に対応する可変長引数。
+ * @return 終端文字を除く、バッファサイズにかかわらず生成しようとした文字数。
+ * @retval E_PAR formatがNULL、またはbufがNULLかつsizeが0より大きい。
+ * @details 出力処理はmini_vsnprintf()へ委譲する。
  */
 INT mini_snprintf(char* buf, UW size, const char* format, ...){
     va_list args;

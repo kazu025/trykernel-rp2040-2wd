@@ -1,3 +1,15 @@
+/**
+ * @file    command.c
+ * @brief   UARTコンソールのコマンド解析と実行を行う。
+ *
+ * @details
+ * 入力されたコマンド行を空白とタブで分割し、コマンド名に対応する
+ * 処理を実行する。ヘルプや状態表示に加え、LED、モーター、I2C、
+ * 距離センサー、ジャイロセンサーを操作・確認するコマンドを提供する。
+ * コマンドの結果やエラーはUART経由で出力する。
+ *
+ */
+
 #include <trykernel.h>
 #include "task_led.h"
 #include "command.h"
@@ -50,6 +62,11 @@ static const command_t command_table[] = {
 
 static const int command_count = sizeof(command_table) / sizeof(command_table[0]);
 
+/**
+ * @brief 入力されたコマンド行を解析して対応する処理を実行する。
+ * @param[in,out] line コマンド行。解析時に空白とタブを終端文字へ置き換える。
+ * @details 空行は無視し、登録されていないコマンド名の場合はUARTへ通知する。
+ */
 void command_execute(char *line)
 {
     char *argv[CMD_MAX_ARGS];
@@ -66,6 +83,13 @@ void command_execute(char *line)
     uart_tx_printf("unknown command: %s\r\n", argv[0]);
 }
 
+/**
+ * @brief 2つの文字列が完全に一致するか判定する。
+ * @param[in] a 比較する文字列。
+ * @param[in] b 比較する文字列。
+ * @retval TRUE 文字列が一致する。
+ * @retval FALSE 文字列が一致しない。
+ */
 static BOOL str_eq(const char *a, const char *b)
 {
     while((*a != '\0') && (*b != '\0')){
@@ -76,6 +100,13 @@ static BOOL str_eq(const char *a, const char *b)
     return (*a == '\0') && (*b == '\0');
 }
 
+/**
+ * @brief 10進数文字列を8ビット符号なし整数として変換する。
+ * @param[in] text 変換する数字のみの文字列。
+ * @param[out] value 変換した値を格納する領域。
+ * @retval TRUE 変換に成功した。
+ * @retval FALSE 引数がNULL、空文字、数字以外、または255を超える値。
+ */
 static BOOL parse_u8(const char *text, UB *value)
 {
     UINT number = 0U;
@@ -93,6 +124,13 @@ static BOOL parse_u8(const char *text, UB *value)
     return TRUE;
 }
 
+/**
+ * @brief 10進数文字列をミリ秒単位の相対時間として変換する。
+ * @param[in] text 変換する数字のみの文字列。
+ * @param[out] value 変換した時間を格納する領域。
+ * @retval TRUE 0～60000の範囲で変換に成功した。
+ * @retval FALSE 引数がNULL、空文字、数字以外、または60000を超える値。
+ */
 static BOOL parse_duration(const char *text, RELTIM *value)
 {
     UW number = 0U;
@@ -110,6 +148,14 @@ static BOOL parse_duration(const char *text, RELTIM *value)
     return TRUE;
 }
 
+/**
+ * @brief コマンド行を空白またはタブで分割する。
+ * @param[in,out] line 分割する文字列。区切り文字を終端文字へ置き換える。
+ * @param[out] argv 分割した各引数の先頭を格納する配列。
+ * @param[in] max_args argvへ格納できる引数の最大数。
+ * @return argvへ格納した引数の数。
+ * @note max_argsを超える引数は格納せず、残りの入力を無視する。
+ */
 static int split_args(char *line, char *argv[], int max_args)
 {
     int argc = 0;
@@ -126,6 +172,11 @@ static int split_args(char *line, char *argv[], int max_args)
     return argc;
 }
 
+/**
+ * @brief 登録されているコマンド名と説明をUARTへ表示する。
+ * @param[in] argc コマンド引数の数（この関数では使用しない）。
+ * @param[in] argv コマンド引数（この関数では使用しない）。
+ */
 static void cmd_help(int argc, char *argv[])
 {
     int i;
@@ -137,6 +188,11 @@ static void cmd_help(int argc, char *argv[])
     }
 }
 
+/**
+ * @brief システム、LED、UARTの状態と各種カウンタをUARTへ表示する。
+ * @param[in] argc コマンド引数の数（この関数では使用しない）。
+ * @param[in] argv コマンド引数（この関数では使用しない）。
+ */
 static void cmd_status(int argc, char *argv[])
 {
     UW overflow_count;
@@ -153,6 +209,12 @@ static void cmd_status(int argc, char *argv[])
     uart_tx_printf("UART RX timeout IRQ count: %u\r\n", (UINT)uart_rt_irq_count_get());
 }
 
+/**
+ * @brief コマンド引数を空白区切りでUARTへ送り返す。
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv コマンド名と送り返す文字列。
+ * @note 出力は固定長バッファの範囲内に切り詰められる。
+ */
 static void cmd_echo(int argc, char *argv[])
 {
     char text[CMD_OUTPUT_BUF_SIZE];
@@ -170,6 +232,12 @@ static void cmd_echo(int argc, char *argv[])
     uart_tx_send(text);
 }
 
+/**
+ * @brief LEDを点灯、消灯、または点滅させる。
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv コマンド名と動作指定（on、off、blink）。
+ * @details 引数が不足または不正な場合は使用方法をUARTへ表示する。
+ */
 static void cmd_led(int argc, char *argv[])
 {
     if(argc < 2){
@@ -188,6 +256,11 @@ static void cmd_led(int argc, char *argv[])
     }
 }
 
+/**
+ * @brief UARTへ固定のテスト文字列を出力する。
+ * @param[in] argc コマンド引数の数（この関数では使用しない）。
+ * @param[in] argv コマンド引数（この関数では使用しない）。
+ */
 static void cmd_print(int argc, char *argv[])
 {
     (void)argc;
@@ -195,6 +268,13 @@ static void cmd_print(int argc, char *argv[])
     uart_tx_send("print test\r\n");
 }
 
+/**
+ * @brief 左右いずれかのモーターを個別に操作または停止する。
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv モーター側、回転方向、デューティ比、または停止指定。
+ * @details 前進指令は障害物状態を確認し、危険または距離不明の場合に拒否する。
+ *          操作結果または使用方法をUARTへ表示する。
+ */
 static void cmd_motor(int argc, char *argv[])
 {
     BOOL is_left;
@@ -237,6 +317,13 @@ usage:
     uart_tx_send("usage: motor left|right forward|reverse <0-100>, or stop\r\n");
 }
 
+/**
+ * @brief 車体の前後進、左右旋回、または停止を指示する。
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv 進行方向、デューティ比、任意の動作時間、または停止指定。
+ * @details 任意の動作時間を指定した場合、時間経過後に減速停止を指示する。
+ *          後退以外の走行では障害物状態を確認する。
+ */
 static void cmd_drive(int argc, char *argv[])
 {
     UB duty;
@@ -276,6 +363,11 @@ static void cmd_drive(int argc, char *argv[])
     }
 }
 
+/**
+ * @brief I2Cバス上の有効な7ビットアドレス範囲を走査して応答デバイスを表示する。
+ * @param[in] argc コマンド引数の数（この関数では使用しない）。
+ * @param[in] argv コマンド引数（この関数では使用しない）。
+ */
 static void cmd_i2cscan(int argc, char *argv[])
 {
     UB address;
@@ -293,6 +385,13 @@ static void cmd_i2cscan(int argc, char *argv[])
     if(found == 0U) uart_tx_send("  no devices found\r\n");
 }
 
+/**
+ * @brief 距離センサーの測定値または取得失敗の情報をUARTへ表示する。
+ * @param[in] argc コマンド引数の数（この関数では使用しない）。
+ * @param[in] argv コマンド引数（この関数では使用しない）。
+ * @details 有効な平均値、最新値、サンプル数を表示する。
+ *          有効な測定値がない場合は利用可能な生データまたは失敗理由を表示する。
+ */
 static void cmd_distance(int argc, char *argv[])
 {
     UH average_mm;
@@ -316,6 +415,13 @@ static void cmd_distance(int argc, char *argv[])
                    (UINT)average_mm, (UINT)latest_mm, sample_count);
 }
 
+/**
+ * @brief MPU6050のジャイロ値を表示するか、ジャイロオフセットを校正する。
+ * @param[in] argc コマンド名を含む引数の数。
+ * @param[in] argv サンプル数（1～50）、または校正指定（calibrate）。
+ * @details 必要に応じてデバイス確認と初期化を行う。校正時はモーターを停止し、
+ *          静止状態で測定したオフセットを保存する。読み出した角速度はmdps単位で表示する。
+ */
 static void cmd_gyro(int argc, char *argv[])
 {
     static BOOL initialized;

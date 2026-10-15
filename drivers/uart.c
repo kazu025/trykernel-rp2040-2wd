@@ -1,5 +1,6 @@
-/*
- * UART driver for TryKernel / RP2040 UART0
+/**
+ * @brief driver for TryKernel / RP2040 UART0
+ * @details
  * This driver provides polling-based transmission
  * and interrupt-driven reception.
  */

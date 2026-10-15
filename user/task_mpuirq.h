@@ -1,3 +1,11 @@
+/**
+ * @file    task_mpuirq.h
+ * @brief   MPU6050割り込みタスクと動作検出APIを宣言する。
+ *
+ * @details MPU割り込み処理タスクの初期化・実行、動作検出の開始・停止と状態取得、
+ *          サンプル数およびエラー数取得のインターフェースを公開する。
+ */
+
 #ifndef TASK_MPUIRQ_H
 #define TASK_MPUIRQ_H
 

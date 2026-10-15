@@ -1,3 +1,14 @@
+/**
+ * @file    task_uartrx.c
+ * @brief   UART受信割り込みから文字を受け取り、コンソールへ渡す。
+ *
+ * @details
+ * UART受信割り込みからイベントフラグで通知を受け、受信リングバッファに
+ * 残っている文字をすべて取り出してコンソール入力処理へ渡す。
+ * コンソールの初期化、UART受信割り込みの有効化、起動メッセージと
+ * プロンプトの表示も行う。
+ */
+
 #include <trykernel.h>
 #include "uart.h"
 #include "console.h"
@@ -30,10 +41,10 @@ command_execute()
   ↓
 コマンド実行
  */
-#define UART_RX_EVENT_DATA (1U << 0)
+#define UART_RX_EVENT_DATA (1U << 0) //!< UART受信データ到着を示すイベントフラグ。
 static ID uart_rx_flgid; //!< UART受信タスク起床用イベントフラグID
 /**
- * @brief UART受信割込みから受信タスクへ通知する。
+ * @brief UART受信割り込みから受信タスクへデータ到着を通知する。
  *
  * @details
  * UART受信割込みハンドラから呼び出され、受信イベントを示す
@@ -61,7 +72,7 @@ static void uart_rx_notify_from_isr(void){
  *
  * イベントフラグの初期状態は、受信イベントなし（0）に設定する。
  *
- * @return ER エラーコード。
+ * @return 初期化結果を示すTRYカーネルのエラーコード。
  * @retval E_OK 初期化に成功した。
  * @retval E_LIMIT イベントフラグを生成できなかった。
  * @retval E_PAR イベントフラグの設定に問題があった。
@@ -82,7 +93,7 @@ ER task_uartrx_init(void){
     return E_OK;
 }
 /**
- * @brief UART受信タスクを実行する。
+ * @brief UART受信データをコンソールへ渡すタスクを実行する。
  *
  * @details
  * UART受信に必要なバッファ、コンソール、UART受信割込みを初期化した後、

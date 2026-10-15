@@ -1,3 +1,12 @@
+/**
+ * @file    uart_sync.c
+ * @brief   UARTへの直接送信を排他制御するセマフォを管理する。
+ *
+ * @details
+ * UART送信処理が同時に実行されないよう、初期化関数でバイナリセマフォを
+ * 作成する。送信前にロックを取得し、送信完了後に解放するAPIを提供する。
+ */
+
 #include <trykernel.h>
 #include "uart_sync.h"
 

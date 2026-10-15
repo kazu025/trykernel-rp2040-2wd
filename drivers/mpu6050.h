@@ -1,11 +1,18 @@
+/**
+ * @file    mpu6050.h
+ * @brief   MPU6050ドライバの識別定数、測定データ型、APIを宣言する。
+ * @details 初期化、割り込み設定、生データ取得、ジャイロ校正、角速度変換の
+ *          インターフェースを公開する。
+ */
+
 #ifndef MPU6050_H
 #define MPU6050_H
 
 #include <trykernel.h>
 
-#define MPU6050_I2C_ADDR  0x68U
-#define MPU6050_WHO_AM_I   0x68U
-#define MPU6500_WHO_AM_I   0x70U
+#define MPU6050_I2C_ADDR  0x68U //!< 通信に使用する7ビットI2Cアドレス。
+#define MPU6050_WHO_AM_I   0x68U //!< MPU6050として受け付けるデバイスID。
+#define MPU6500_WHO_AM_I   0x70U //!< MPU6500として受け付けるデバイスID。
 
 typedef struct {
     INT accel_x;

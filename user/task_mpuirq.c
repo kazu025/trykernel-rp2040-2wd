@@ -1,3 +1,13 @@
+/**
+ * @file    task_mpuirq.c
+ * @brief   MPU6050のデータ準備割り込みを処理し、動作状態を検出する。
+ *
+ * @details
+ * GPIO割り込みからイベントフラグでタスクへ通知し、MPU6050の割り込み状態と
+ * 加速度・角速度データを読み取る。測定値から移動・停止を判定し、状態変化を
+ * モーションLEDとFlashログへ通知する。サンプル数とエラー数も管理する。
+ */
+
 #include <trykernel.h>
 #include "gpio.h"
 #include "mpu6050.h"
@@ -6,27 +16,39 @@
 #include "task_flashlog.h"
 #include "uart_tx.h"
 
-#define MPU_INT_PIN          6U
-#define MPU_EVENT_DATA_READY (1U << 0)
-#define MOTION_ACCEL_SQUARED_THRESHOLD  40000000LL
-#define MOTION_GYRO_MILLI_DPS_THRESHOLD 5000
-#define MOTION_ACTIVE_SAMPLE_COUNT      2U
-#define MOTION_STILL_SAMPLE_COUNT       10U
+#define MPU_INT_PIN          6U       //!< MPU6050のデータ準備割り込みを接続するGPIOピン番号。
+#define MPU_EVENT_DATA_READY (1U << 0) //!< MPU6050データ準備完了を示すイベントフラグ。
+#define MOTION_ACCEL_SQUARED_THRESHOLD  40000000LL //!< 加速度ベクトルの大きさの変化を判定する二乗値しきい値。
+#define MOTION_GYRO_MILLI_DPS_THRESHOLD 5000        //!< 動作判定に使う軸ごとの角速度しきい値（mdps）。
+#define MOTION_ACTIVE_SAMPLE_COUNT      2U          //!< 動作開始と判定するために必要な連続サンプル数。
+#define MOTION_STILL_SAMPLE_COUNT       10U         //!< 停止と判定するために必要な連続サンプル数。
 
-static ID mpu_flgid;
-static volatile UW mpu_sample_count;
-static volatile UW mpu_error_count;
-static volatile BOOL motion_enabled;
-static volatile long long motion_accel_reference_squared;
-static BOOL motion_detected;
-static UINT motion_active_count;
-static UINT motion_still_count;
+static ID mpu_flgid;                                      //!< データ準備完了通知に使用するイベントフラグID。
+static volatile UW mpu_sample_count;                      //!< 正常に読み取ったMPU6050サンプルの累積数。
+static volatile UW mpu_error_count;                       //!< 割り込み待ちまたはセンサー読み取りのエラー数。
+static volatile BOOL motion_enabled;                      //!< 動作検出が有効な場合にTRUE。
+static volatile long long motion_accel_reference_squared; //!< 動作開始時に取得した加速度ベクトル二乗値の基準。
+static BOOL motion_detected;                               //!< 現在、移動中と判定されている場合にTRUE。
+static UINT motion_active_count;                           //!< 動作開始しきい値を超えた連続サンプル数。
+static UINT motion_still_count;                            //!< 動作なしと判定された連続サンプル数。
 
+/**
+ * @brief 符号付き整数の絶対値を返す。
+ * @param[in] value 対象の整数値。
+ * @return valueの絶対値。
+ */
 static INT absolute_int(INT value)
 {
     return (value < 0) ? -value : value;
 }
 
+/**
+ * @brief MPU6050のサンプルから移動・停止状態を更新する。
+ * @param[in] raw_data 加速度と角速度を含む生データ。
+ * @details 加速度変化または角速度がしきい値を超える状態が所定回数続くと移動、
+ *          動作なしの状態が所定回数続くと停止と判定する。状態変化時にはLED、
+ *          UARTおよびFlashログへ通知する。
+ */
 static void motion_update(const mpu6050_raw_data_t *raw_data)
 {
     long long accel_magnitude_squared;
@@ -91,6 +113,10 @@ static void motion_update(const mpu6050_raw_data_t *raw_data)
     }
 }
 
+/**
+ * @brief MPU6050のデータ準備割り込みをイベントフラグでタスクへ通知する。
+ * @details GPIO割り込みハンドラから呼び出される。
+ */
 static void mpu_data_ready_notify_from_isr(void)
 {
     if(mpu_flgid > 0){
@@ -98,6 +124,11 @@ static void mpu_data_ready_notify_from_isr(void)
     }
 }
 
+/**
+ * @brief MPU割り込み処理用イベントフラグと状態変数を初期化する。
+ * @retval E_OK 初期化に成功した。
+ * @return イベントフラグ作成に失敗した場合はTRYカーネルのエラーコード。
+ */
 ER task_mpuirq_init(void)
 {
     T_CFLG cflg;
@@ -119,6 +150,11 @@ ER task_mpuirq_init(void)
     return E_OK;
 }
 
+/**
+ * @brief 指定した加速度を基準として動作検出を開始する。
+ * @param[in] accel_magnitude_squared 静止基準とする加速度ベクトルの大きさの二乗。
+ * @details 検出カウンタを初期化し、初期状態を停止としてLEDとFlashログへ通知する。
+ */
 void task_mpuirq_motion_start(long long accel_magnitude_squared)
 {
     motion_accel_reference_squared = accel_magnitude_squared;
@@ -130,27 +166,51 @@ void task_mpuirq_motion_start(long long accel_magnitude_squared)
     (void)task_flashlog_notify(FLASHLOG_EVENT_STOPPED, mpu_sample_count);
 }
 
+/**
+ * @brief 動作検出を停止し、モーションLEDを消灯状態にする。
+ */
 void task_mpuirq_motion_stop(void)
 {
     motion_enabled = FALSE;
     task_motionled_set_off();
 }
 
+/**
+ * @brief 動作検出が有効かどうかを取得する。
+ * @retval TRUE 動作検出が有効である。
+ * @retval FALSE 動作検出が無効である。
+ */
 BOOL task_mpuirq_motion_is_enabled(void)
 {
     return motion_enabled;
 }
 
+/**
+ * @brief 正常に読み取ったMPU6050サンプル数を取得する。
+ * @return 正常サンプルの累積数。
+ */
 UW task_mpuirq_sample_count_get(void)
 {
     return mpu_sample_count;
 }
 
+/**
+ * @brief MPU割り込み処理およびセンサー読み取りのエラー数を取得する。
+ * @return エラーの累積数。
+ */
 UW task_mpuirq_error_count_get(void)
 {
     return mpu_error_count;
 }
 
+/**
+ * @brief MPU6050のデータ準備割り込みを待ち、測定値を処理するタスク。
+ * @param[in] stacd タスク起動コード（この関数では使用しない）。
+ * @param[in] exinf タスク拡張情報（この関数では使用しない）。
+ * @details MPU6050とGPIO割り込みを初期化した後、通知ごとに割り込み状態と
+ *          センサーデータを読み取る。正常データはサンプル数へ反映し、
+ *          動作検出が有効な場合は状態判定へ渡す。
+ */
 void task_mpuirq(INT stacd, void *exinf)
 {
     mpu6050_raw_data_t raw_data;

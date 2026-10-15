@@ -1,21 +1,39 @@
+/**
+ * @file    task_msgtest.c
+ * @brief   TRYカーネルのメッセージキュー送受信と動作を確認する。
+ *
+ * @details
+ * 通常の送受信用キューとテスト専用キューを作成する。メッセージ送信APIと
+ * 受信タスクを提供し、テスト関数ではFIFO順序、キュー満杯、送受信タイムアウトを
+ * 確認して結果をUARTへ表示する。
+ */
+
 #include <trykernel.h>
 #include "task_msgtest.h"
 #include "uart_tx.h"
 
-#define MSGTEST_QUEUE_DEPTH  4
-#define MSGTEST_TIMEOUT      100
+#define MSGTEST_QUEUE_DEPTH  4   //!< メッセージキューの最大格納件数。
+#define MSGTEST_TIMEOUT      100 //!< タイムアウト試験で待つ時間（ミリ秒）。
 
+/**
+ * @brief メッセージキューで送受信する試験用メッセージ。
+ */
 typedef struct {
-    UW  sequence;
-    INT value;
+    UW  sequence; //!< メッセージの通番。
+    INT value;    //!< 通番に対応する試験値。
 } MSGTEST_MESSAGE;
 
-static MSGTEST_MESSAGE msgtest_buffer[MSGTEST_QUEUE_DEPTH];
-static MSGTEST_MESSAGE msgtest_test_buffer[MSGTEST_QUEUE_DEPTH];
-static ID msgtest_queue_id;
-static ID msgtest_test_queue_id;
-static UW msgtest_sequence;
+static MSGTEST_MESSAGE msgtest_buffer[MSGTEST_QUEUE_DEPTH];      //!< 通常キューのメッセージ格納バッファ。
+static MSGTEST_MESSAGE msgtest_test_buffer[MSGTEST_QUEUE_DEPTH]; //!< キュー動作試験用のメッセージ格納バッファ。
+static ID msgtest_queue_id;                                      //!< 通常メッセージキューのID。
+static ID msgtest_test_queue_id;                                 //!< 試験用メッセージキューのID。
+static UW msgtest_sequence;                                      //!< 通常キューへ送る次の通番。
 
+/**
+ * @brief 通常用と試験用のメッセージキューを作成する。
+ * @retval E_OK 両方のキュー作成に成功した。
+ * @return キュー作成に失敗した場合はTRYカーネルのエラーコード。
+ */
 ER task_msgtest_init(void)
 {
     T_CMSGQ cmsgq;
@@ -38,6 +56,14 @@ ER task_msgtest_init(void)
     return E_OK;
 }
 
+/**
+ * @brief 通常メッセージキューへ通番付きメッセージを送信する。
+ * @param[out] sequence 送信に成功したメッセージの通番を格納する領域。
+ * @retval E_OK メッセージをキューへ送信した。
+ * @retval E_PAR sequenceがNULLである。
+ * @retval E_NOEXS 通常メッセージキューが存在しない。
+ * @return その他、キュー送信時に発生したTRYカーネルのエラーコード。
+ */
 ER task_msgtest_send(UW *sequence)
 {
     MSGTEST_MESSAGE message;
@@ -55,6 +81,11 @@ ER task_msgtest_send(UW *sequence)
     return err;
 }
 
+/**
+ * @brief メッセージキューのFIFO、満杯、送受信タイムアウトを試験する。
+ * @details 各試験結果をUARTへ表示し、最後に成功数を出力する。
+ *          試験途中でセットアップ、受信、後片付けに失敗した場合はその時点で終了する。
+ */
 void task_msgtest_run_tests(void)
 {
     MSGTEST_MESSAGE message;
@@ -149,6 +180,12 @@ void task_msgtest_run_tests(void)
     uart_tx_printf("Message queue test complete: %d/4 PASS\r\n", passed);
 }
 
+/**
+ * @brief 通常メッセージキューからメッセージを受信してUARTへ表示するタスク。
+ * @param[in] stacd タスク起動コード（この関数では使用しない）。
+ * @param[in] exinf タスク拡張情報（この関数では使用しない）。
+ * @details キューから無期限待ちで受信し、受信データまたはエラーを表示する。
+ */
 void task_msgtest(INT stacd, void *exinf)
 {
     MSGTEST_MESSAGE message;

@@ -1,6 +1,7 @@
-/*
+/**
+ * @brief
  * I2C driver for TryKernel / RP2040 I2C0
- *
+ * @details
  * I2C0:
  *   SDA = GPIO4
  *   SCL = GPIO5

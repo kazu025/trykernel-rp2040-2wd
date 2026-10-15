@@ -24,6 +24,14 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
  * DAMAGE.
  */
+/**
+ * @file    vl53l1x.c
+ * @brief   VL53L1X距離センサーの初期化と距離取得を行う。
+ * @details I2C経由で初期設定、測定開始、データ準備完了待ち、結果取得を行う。
+ *          有効な距離をミリメートル単位で返し、診断用に直近の測定試行の
+ *          距離とステータスも保持する。
+ */
+
 #include <trykernel.h>
 #include "i2c.h"
 #include "vl53l1x.h"
@@ -64,6 +72,13 @@ static const UB default_configuration[] = {
 _Static_assert(sizeof(default_configuration) == 91U,
                "VL53L1X default configuration size mismatch");
 
+/**
+ * @brief 指定レジスターへ1バイトを書き込む。
+ * @param[in] register_address 16ビットのレジスターアドレス。
+ * @param[in] value 書き込む値。
+ * @retval TRUE I2C書き込みに成功した。
+ * @retval FALSE I2C書き込みに失敗した。
+ */
 static BOOL write_register(UH register_address, UB value)
 {
     UB data[3];
@@ -73,6 +88,14 @@ static BOOL write_register(UH register_address, UB value)
     return i2c0_write(VL53L1X_I2C_ADDR, data, 3U);
 }
 
+/**
+ * @brief 指定レジスターから連続したデータを読み出す。
+ * @param[in] register_address 読み出し開始レジスターのアドレス。
+ * @param[out] data sizeバイト以上の受信バッファ。
+ * @param[in] size 読み出すバイト数。
+ * @retval TRUE I2C読み出しに成功した。
+ * @retval FALSE I2C読み出しに失敗した。
+ */
 static BOOL read_registers(UH register_address, UB *data, UINT size)
 {
     UB address[2];
@@ -81,11 +104,25 @@ static BOOL read_registers(UH register_address, UB *data, UINT size)
     return i2c0_write_read(VL53L1X_I2C_ADDR, address, 2U, data, size);
 }
 
+/**
+ * @brief 指定レジスターから1バイトを読み出す。
+ * @param[in] register_address 読み出すレジスターのアドレス。
+ * @param[out] value 読み出した値の格納先。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE 読み出しに失敗した。
+ */
 static BOOL read_register(UH register_address, UB *value)
 {
     return read_registers(register_address, value, 1U);
 }
 
+/**
+ * @brief 連続する2レジスターから上位バイト先行の16ビット値を読み出す。
+ * @param[in] register_address 上位バイトのレジスターアドレス。
+ * @param[out] value 変換した16ビット値の格納先。失敗時は変更しない。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE 読み出しに失敗した。
+ */
 static BOOL read_word(UH register_address, UH *value)
 {
     UB data[2];
@@ -94,6 +131,13 @@ static BOOL read_word(UH register_address, UH *value)
     return TRUE;
 }
 
+/**
+ * @brief センサーの測定データ準備完了を待つ。
+ * @details GPIO出力の極性設定に従って状態を判定する。未完了の場合は
+ *          2 ms待機し、最大VL53L1X_READY_RETRY_COUNT回確認する。
+ * @retval TRUE データ準備完了を検出した。
+ * @retval FALSE レジスター読み出し失敗、または確認回数の上限に達した。
+ */
 static BOOL wait_data_ready(void)
 {
     UINT retry;
@@ -112,6 +156,13 @@ static BOOL wait_data_ready(void)
     return FALSE;
 }
 
+/**
+ * @brief VL53L1Xの起動状態とモデルIDを確認し、初期設定を行う。
+ * @details デフォルト設定を書き込み、初回の測定動作と追加設定を行った後、
+ *          測定を停止した初期化済み状態にする。待機処理を含むためタスクから呼ぶ。
+ * @retval TRUE 初期化が完了した。
+ * @retval FALSE 起動待ち、モデルID確認、通信、または測定準備待ちに失敗した。
+ */
 BOOL vl53l1x_init(void)
 {
     UINT retry;
@@ -145,6 +196,15 @@ BOOL vl53l1x_init(void)
     return TRUE;
 }
 
+/**
+ * @brief 直近の測定試行で保存した診断用の距離とステータスを取得する。
+ * @param[out] raw_mm センサーから読み出した距離（ミリメートル）の格納先。
+ * @param[out] raw_status 測定ステータスの下位5ビットの格納先。
+ * @retval TRUE 直近の測定試行で距離とステータスを読み出せた。
+ * @retval FALSE 引数がNULL、または直近の測定試行で結果を読み出せなかった。
+ * @note TRUEは距離の有効性を保証しない。測定ステータスも確認すること。
+ *       両引数が非NULLなら、戻り値がFALSEの場合も保存値をコピーする。
+ */
 BOOL vl53l1x_get_last_result(UH *raw_mm, UB *raw_status)
 {
     UINT intsts;
@@ -158,6 +218,16 @@ BOOL vl53l1x_get_last_result(UH *raw_mm, UB *raw_status)
     return ready;
 }
 
+/**
+ * @brief 測定を実行し、有効な距離をミリメートル単位で取得する。
+ * @param[out] distance_mm 有効な距離の格納先。失敗時は変更しない。
+ * @details 未初期化の場合は初期化を行い、測定開始後にデータ準備完了を待つ。
+ *          生ステータスが9の場合のみ成功とし、取得結果を診断用に保存する。
+ *          測定後は割り込みクリアと測定停止の処理を行う。
+ * @retval TRUE 有効な距離を取得した。
+ * @retval FALSE 引数がNULL、初期化・測定・通信の失敗、または測定値が無効。
+ * @note 待機処理を含むためタスクから呼び出す。
+ */
 BOOL vl53l1x_read_distance(UH *distance_mm)
 {
     BOOL result = FALSE;

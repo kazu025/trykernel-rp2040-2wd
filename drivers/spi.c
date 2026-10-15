@@ -1,6 +1,6 @@
-/*
- * SPI0 polling driver for TryKernel / RP2040
- *
+/**
+ * @brief SPI0 polling driver for TryKernel / RP2040
+ * @details
  * SPI0 Mode 0, 8 bit, approximately 1 MHz:
  *   SCK  = GPIO18
  *   MOSI = GPIO19

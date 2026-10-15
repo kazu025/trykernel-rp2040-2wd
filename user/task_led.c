@@ -1,23 +1,54 @@
+/**
+ * @file    task_led.c
+ * @brief   LEDの点灯状態を切り替えるタスクと制御APIを実装する。
+ *
+ * @details
+ * LEDの消灯、点灯、点滅の状態を保持し、周期通知を使ってLEDを制御する。
+ * 状態の変更は制御APIから行い、タスクが状態に応じた点灯処理を継続する。
+ */
+
 #include <trykernel.h>
 #include "gpio.h"
 #include "task_led.h"
 #include "uart_tx.h"
 
+/**
+ * @brief LED制御タスクが扱う点灯状態。
+ */
 typedef enum {
-    LED_MODE_OFF,
-    LED_MODE_ON,
-    LED_MODE_BLINK
+    LED_MODE_OFF,   //!< LEDを消灯する。
+    LED_MODE_ON,    //!< LEDを点灯する。
+    LED_MODE_BLINK  //!< LEDを周期的に点滅させる。
 } LED_TASK_MODE;
+
+/** 現在のLED点灯状態。 */
 static volatile LED_TASK_MODE led_task_mode = LED_MODE_OFF;
+
+/**
+ * @brief LEDの点灯状態を点灯に設定する。
+ */
 void led_task_set_on(void) {
     led_task_mode = LED_MODE_ON;
 }
+
+/**
+ * @brief LEDの点灯状態を消灯に設定する。
+ */
 void led_task_set_off(void) {
     led_task_mode = LED_MODE_OFF;
 }
+
+/**
+ * @brief LEDの点灯状態を点滅に設定する。
+ */
 void led_task_blink(void) {
     led_task_mode = LED_MODE_BLINK;
 }
+
+/**
+ * @brief 現在のLED点灯状態を文字列で取得する。
+ * @return 状態名（"OFF"、"ON"、"BLINK"、または"UNKNOWN"）。
+ */
 const char *led_task_mode_name(void) {
     switch (led_task_mode) {
         case LED_MODE_OFF:
@@ -30,10 +61,14 @@ const char *led_task_mode_name(void) {
             return "UNKNOWN";
     }
 }
-/* 100msごとの通知を数える。タスク再起動時にも再利用する。 */
+/** 100 ms周期通知を受け取るセマフォID。 */
 static ID led_tick_semid;
 
-/* SysTick内で実行するので、通知だけを行う。 */
+/**
+ * @brief 周期ハンドラからLED制御タスクへ通知する。
+ * @param[in] exinf セマフォIDを格納した領域へのポインタ。
+ * @details 周期ハンドラ内ではセマフォ通知のみを行う。
+ */
 static void led_periodic_handler(void *exinf)
 {
     ID semid = *(ID *)exinf;
@@ -41,7 +76,14 @@ static void led_periodic_handler(void *exinf)
     (void)tk_sig_sem(semid, 1);
 }
 
-/* LED制御タスク1の実行関数 */
+/**
+ * @brief 周期通知に従ってLEDを点灯、消灯、または点滅させるタスク。
+ * @param[in] stacd タスク起動コード（この関数では使用しない）。
+ * @param[in] exinf タスク拡張情報（この関数では使用しない）。
+ * @details 周期ハンドラとセマフォを作成して通知を待ち、現在のLED状態に
+ *          応じた出力を行う。初期化または待ち処理に失敗した場合はエラーを
+ *          UARTへ通知し、タスクを終了する。
+ */
 void task_led1(INT stacd, void *exinf)
 {
     (void)stacd;

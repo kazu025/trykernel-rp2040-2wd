@@ -1,25 +1,33 @@
-/*
- * MPU-6050 accelerometer and gyroscope driver
+/**
+ * @file    mpu6050.c
+ * @brief   MPU6050の加速度・角速度データ取得とジャイロ校正を行う。
+ * @details I2Cによるレジスター操作、初期設定、データ準備割り込み設定、
+ *          生データ取得を提供する。静止時のジャイロオフセットを保持し、
+ *          補正した角速度への変換と動作検出用の加速度基準値算出を行う。
  */
 #include <trykernel.h>
 #include "i2c.h"
 #include "mpu6050.h"
 
-#define MPU6050_REG_ACCEL_XOUT_H  0x3BU
-#define MPU6050_REG_INT_STATUS    0x3AU
-#define MPU6050_REG_SMPLRT_DIV    0x19U
-#define MPU6050_REG_GYRO_CONFIG   0x1BU
-#define MPU6050_REG_CONFIG        0x1AU
-#define MPU6050_REG_INT_ENABLE    0x38U
-#define MPU6050_REG_PWR_MGMT_1    0x6BU
-#define MPU6050_REG_WHO_AM_I      0x75U
+#define MPU6050_REG_ACCEL_XOUT_H  0x3BU //!< X軸加速度上位バイト。14バイト連続読み出しの開始位置。
+#define MPU6050_REG_INT_STATUS    0x3AU //!< 割り込み状態レジスター。
+#define MPU6050_REG_SMPLRT_DIV    0x19U //!< サンプルレート分周設定レジスター。
+#define MPU6050_REG_GYRO_CONFIG   0x1BU //!< ジャイロ測定範囲などの設定レジスター。
+#define MPU6050_REG_CONFIG        0x1AU //!< デジタルローパスフィルターなどの設定レジスター。
+#define MPU6050_REG_INT_ENABLE    0x38U //!< 割り込み有効化レジスター。
+#define MPU6050_REG_PWR_MGMT_1    0x6BU //!< 電源管理とクロック選択のレジスター。
+#define MPU6050_REG_WHO_AM_I      0x75U //!< デバイス識別レジスター。
 
-static INT mpu6050_gyro_offset_x;
-static INT mpu6050_gyro_offset_y;
-static INT mpu6050_gyro_offset_z;
+static INT mpu6050_gyro_offset_x; //!< X軸ジャイロのゼロ点オフセット（生データ単位、初期値0）。
+static INT mpu6050_gyro_offset_y; //!< Y軸ジャイロのゼロ点オフセット（生データ単位、初期値0）。
+static INT mpu6050_gyro_offset_z; //!< Z軸ジャイロのゼロ点オフセット（生データ単位、初期値0）。
 
-/*
- * 8ビットレジスタへ1つ書き込む
+/**
+ * @brief 指定レジスターへ1バイトを書き込む。
+ * @param[in] register_address 書き込み先レジスターのアドレス。
+ * @param[in] value 書き込む値。
+ * @retval TRUE I2C書き込みに成功した。
+ * @retval FALSE I2C書き込みに失敗した。
  */
 static BOOL mpu6050_write_register(UB register_address, UB value)
 {
@@ -31,6 +39,13 @@ static BOOL mpu6050_write_register(UB register_address, UB value)
     return i2c0_write(MPU6050_I2C_ADDR, data, 2U);
 }
 
+/**
+ * @brief 指定レジスターから1バイトを読み出す。
+ * @param[in] register_address 読み出すレジスターのアドレス。
+ * @param[out] value 読み出した値の格納先。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE valueがNULL、またはI2C通信に失敗した。
+ */
 static BOOL mpu6050_read_register(UB register_address, UB *value)
 {
     if(value == NULL){
@@ -40,8 +55,11 @@ static BOOL mpu6050_read_register(UB register_address, UB *value)
         MPU6050_I2C_ADDR, &register_address, 1U, value, 1U);
 }
 
-/*
- * ビッグエンディアンの16ビットデータを符号付き整数へ変換する
+/**
+ * @brief 上位・下位バイトから16ビット符号付き整数値を復元する。
+ * @param[in] high 上位バイト。
+ * @param[in] low 下位バイト。
+ * @return 2の補数として解釈した値（-32768～32767）。
  */
 static INT mpu6050_decode_s16(UB high, UB low)
 {
@@ -55,8 +73,11 @@ static INT mpu6050_decode_s16(UB high, UB low)
     return (INT)value;
 }
 
-/*
- * WHO_AM_Iレジスタを読み出す
+/**
+ * @brief WHO_AM_IレジスターからデバイスIDを読み出す。
+ * @param[out] device_id デバイスIDの格納先。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE device_idがNULL、またはI2C通信に失敗した。
  */
 BOOL mpu6050_read_who_am_i(UB *device_id)
 {
@@ -77,8 +98,11 @@ BOOL mpu6050_read_who_am_i(UB *device_id)
     );
 }
 
-/*
- * このドライバで扱えるデバイスIDか確認する
+/**
+ * @brief デバイスIDがドライバの受け付ける値か判定する。
+ * @param[in] device_id WHO_AM_Iから取得した値。
+ * @retval TRUE MPU6050またはMPU6500の識別値である。
+ * @retval FALSE 上記以外の値である。
  */
 BOOL mpu6050_is_supported_device(UB device_id)
 {
@@ -86,10 +110,12 @@ BOOL mpu6050_is_supported_device(UB device_id)
         || (device_id == MPU6500_WHO_AM_I);
 }
 
-/*
- * スリープを解除する
- *
- * 初期設定では加速度レンジは±2g、ジャイロレンジは±250dps。
+/**
+ * @brief スリープを解除し、クロック・ジャイロ範囲・フィルターを設定する。
+ * @details X軸ジャイロPLLを選択し、ジャイロを±250 dps、CONFIGを0x03に設定する。
+ *          加速度範囲や保存済みジャイロオフセットは変更しない。
+ * @retval TRUE すべてのレジスター書き込みに成功した。
+ * @retval FALSE I2C書き込みに失敗した。
  */
 BOOL mpu6050_init(void)
 {
@@ -99,7 +125,12 @@ BOOL mpu6050_init(void)
         && mpu6050_write_register(MPU6050_REG_CONFIG, 0x03U);
 }
 
-// MPU測定完了を10HzでINT端子から通知する
+/**
+ * @brief 10 Hzのデータ準備完了割り込みを有効にする。
+ * @details フィルター設定とサンプルレート分周値99を書き込み、割り込みを有効化する。
+ * @retval TRUE 設定に成功した。
+ * @retval FALSE I2C書き込みに失敗した。
+ */
 BOOL mpu6050_enable_data_ready_interrupt(void)
 {
     /* DLPF有効時の1kHz出力を100分周して10Hzにする */
@@ -107,14 +138,23 @@ BOOL mpu6050_enable_data_ready_interrupt(void)
         && mpu6050_write_register(MPU6050_REG_SMPLRT_DIV, 99U)  // 10Hz
         && mpu6050_write_register(MPU6050_REG_INT_ENABLE, 0x01U); // 割り込み有効
 }
-// 割り込み発生要因を取得
+/**
+ * @brief 割り込み状態レジスターを読み出す。
+ * @param[out] status 割り込み状態の格納先。
+ * @retval TRUE 読み出しに成功した。
+ * @retval FALSE statusがNULL、またはI2C通信に失敗した。
+ */
 BOOL mpu6050_read_interrupt_status(UB *status)
 {
     return mpu6050_read_register(MPU6050_REG_INT_STATUS, status);
 }
 
-/*
- * 加速度、温度、ジャイロの生データを連続読み出しする
+/**
+ * @brief 加速度・温度・ジャイロの生データを14バイト連続で読み出す。
+ * @param[out] raw_data 各値を符号付き整数へ変換して格納する領域。
+ * @retval TRUE すべての値を取得した。
+ * @retval FALSE raw_dataがNULL、またはI2C通信に失敗した。
+ * @note 物理単位への変換やオフセット補正は行わない。失敗時は出力を変更しない。
  */
 BOOL mpu6050_read_raw(mpu6050_raw_data_t *raw_data)
 {
@@ -146,8 +186,17 @@ BOOL mpu6050_read_raw(mpu6050_raw_data_t *raw_data)
     return TRUE;
 }
 
-/*
- * 静止中のジャイロ生データを平均し、ゼロ点オフセットとして保存する
+/**
+ * @brief 静止中のジャイロ生データを平均し、ゼロ点オフセットを保存する。
+ * @param[in] sample_count 平均に使用するサンプル数。1以上を指定する。
+ * @param[in] sample_period サンプル間の待ち時間（ミリ秒）。0以下なら待機しない。
+ * @param[out] offset_x X軸オフセットの格納先（生データ単位）。
+ * @param[out] offset_y Y軸オフセットの格納先（生データ単位）。
+ * @param[out] offset_z Z軸オフセットの格納先（生データ単位）。
+ * @retval TRUE 校正に成功し、内部オフセットと出力引数を更新した。
+ * @retval FALSE 引数不正、初期化・読み取り・待機のいずれかに失敗した。
+ * @details 初期化後に100 ms待機してから測定する。失敗時は以前のオフセットを保持する。
+ * @note センサーを静止させ、待機可能なタスクから呼び出すこと。
  */
 BOOL mpu6050_calibrate_gyro(
     UINT sample_count,
@@ -203,8 +252,17 @@ BOOL mpu6050_calibrate_gyro(
     return TRUE;
 }
 
-/*
- * 静止中のジャイロ零点と加速度ベクトル長の基準値を求める
+/**
+ * @brief 静止時のジャイロオフセットと加速度ベクトル二乗和の平均を求める。
+ * @param[in] sample_count 平均に使用するサンプル数。1以上を指定する。
+ * @param[in] sample_period サンプル間の待ち時間（ミリ秒）。0以下なら待機しない。
+ * @param[out] offset_x X軸ジャイロオフセットの格納先（生データ単位）。
+ * @param[out] offset_y Y軸ジャイロオフセットの格納先（生データ単位）。
+ * @param[out] offset_z Z軸ジャイロオフセットの格納先（生データ単位）。
+ * @param[out] accel_magnitude_squared 加速度3軸の生データ二乗和を平均した基準値の格納先。
+ * @retval TRUE 校正に成功し、内部オフセットと出力引数を更新した。
+ * @retval FALSE 引数不正、初期化・読み取り・待機のいずれかに失敗した。
+ * @note センサーを静止させて呼び出すこと。失敗時は以前のオフセットを保持する。
  */
 BOOL mpu6050_calibrate_motion(
     UINT sample_count,
@@ -265,8 +323,15 @@ BOOL mpu6050_calibrate_motion(
     return TRUE;
 }
 
-/*
- * 保存済みゼロ点オフセットを適用してミリdpsへ変換する
+/**
+ * @brief 保存済みオフセットを差し引き、ジャイロ生データを角速度へ変換する。
+ * @param[in] raw_data 変換元のジャイロ生データを含む構造体。
+ * @param[out] gyro_x_milli_dps X軸角速度の格納先（mdps）。
+ * @param[out] gyro_y_milli_dps Y軸角速度の格納先（mdps）。
+ * @param[out] gyro_z_milli_dps Z軸角速度の格納先（mdps）。
+ * @retval TRUE 変換結果を格納した。
+ * @retval FALSE いずれかの引数がNULLである。
+ * @details ±250 dps設定に対応する感度131を使用する。1000 mdpsは1度/秒に相当する。
  */
 BOOL mpu6050_get_gyro_milli_dps(
     const mpu6050_raw_data_t *raw_data,

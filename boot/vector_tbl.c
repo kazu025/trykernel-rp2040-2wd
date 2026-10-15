@@ -1,7 +1,11 @@
-/*
- *** Try Kernel
- *      例外ベクターテーブル
-*/
+/**
+ * @file    vector_tbl.c
+ * @brief   Cortex-M例外およびRP2040割り込みのベクターテーブルを定義する。
+ *
+ * @details ベクターテーブルを.vectorセクションへ配置し、リセット、PendSV、SysTick、
+ *          GPIO、UART0の各ハンドラを登録する。未使用の例外・割り込みは
+ *          Default_Handlerへ割り当てる。
+ */
 
 #include <typedef.h>
 #include <sysdef.h>
@@ -11,13 +15,21 @@
 extern void dispatch_entry(void);       /* ディスパッチャ */
 extern void uart0_irq_handler(void);    /* UART0受信割り込み */
 extern void io_irq_bank0_handler(void); /* GPIO割り込み */
-/* デフォルトハンドラ */
+/**
+ * @brief 未使用の例外・割り込みで実行を停止する。
+ * @details 予期しない例外または未割り当て割り込みが発生した場合、
+ *          無限ループへ入り以降の処理を行わない。
+ */
 void Default_Handler(void)
 {
     while(1);
 }
 
-/* 例外ベクターテーブル */
+/**
+ * @brief Cortex-M例外とRP2040割り込みのハンドラーアドレスを保持するベクターテーブル。
+ * @details リンカスクリプトにより.vectorセクションへ配置され、リセット直後に
+ *          Cortex-Mから参照される。先頭要素には初期スタックポインターを格納する。
+ */
 void (* const vector_tbl[])() __attribute__((section(".vector"))) = {
     (void(*)()) (INITIAL_SP),   // 0: Top of Stack
     Reset_Handler,              // 1: Reset

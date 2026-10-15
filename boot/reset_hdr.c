@@ -1,7 +1,11 @@
-﻿/* 
- *** Try Kernel
- *      リセットハンドラ
-*/
+﻿/**
+ * @file    reset_hdr.c
+ * @brief   リセット直後のクロック、周辺機器、メモリー、SysTickを初期化する。
+ *
+ * @details XOSCとPLLを設定してシステムクロックを構成し、GPIOとUARTを有効化する。
+ *          dataセクションのコピーとbssセクションの初期化を行った後、SysTickを開始し、
+ *          main()へ制御を渡す。
+ */
 
 #include <typedef.h>
 #include <sysdef.h>
@@ -17,9 +21,17 @@ extern const void *__bss_end;
 
 /*** クロックの初期化 ***/
 
-#define XOSC_STARTUP_DELAY	((XOSC_KHz + 128) / 256)
+#define XOSC_STARTUP_DELAY	((XOSC_KHz + 128) / 256) //!< XOSC安定化待ち時間の設定値。
 
-/* PLLの初期化 */
+/**
+ * @brief 指定PLLの基準分周、VCO周波数、出力分周を設定する。
+ * @param[in] pll 設定するPLLのベースアドレス。
+ * @param[in] refdiv 基準クロックの分周値。
+ * @param[in] vco_freq 設定するVCO周波数（Hz）。
+ * @param[in] post_div1 第1出力分周値。
+ * @param[in] post_div2 第2出力分周値。
+ * @details 対象PLLをリセットしてから設定し、ロック完了後に出力分周器を有効化する。
+ */
 static void init_pll(UW pll, UINT refdiv, UINT vco_freq, UINT post_div1, UINT post_div2)
 {
     UW  ref_mhz, fbdiv, pdiv;
@@ -43,7 +55,14 @@ static void init_pll(UW pll, UINT refdiv, UINT vco_freq, UINT post_div1, UINT po
     clr_w(pll+PLL_PWR, PLL_PWR_POSTDIVPD);
 }
 
-/* 周辺クロックの設定 */
+/**
+ * @brief 指定された周辺クロックのソースと分周値を設定する。
+ * @param[in] clock_kind 設定するクロック種別。
+ * @param[in] auxsrc 補助クロックソースの選択値。
+ * @param[in] src_freq 入力クロック周波数（Hz）。
+ * @param[in] freq 設定する出力クロック周波数（Hz）。
+ * @details 出力周波数が入力周波数を超える場合は設定しない。
+ */
 static void clock_config(UINT clock_kind, UW auxsrc, UW src_freq, UW freq)
 {
     UW  clock;
@@ -62,7 +81,11 @@ static void clock_config(UINT clock_kind, UW auxsrc, UW src_freq, UW freq)
     out_w(clock+CLK_x_DIV, div);
 }
 
-/* クロックの初期化 */
+/**
+ * @brief XOSC、PLL、システムおよび周辺クロックを初期化する。
+ * @details XOSCを起動後、PLL_SYSを125 MHz、PLL_USBを48 MHz用に設定する。
+ *          CLK_REF、CLK_SYS、USB、ADC、RTC、PERIへ必要なクロックを供給する。
+ */
 static void init_clock(void)
 {
     UW  div;
@@ -125,8 +148,11 @@ static void init_clock(void)
     clock_config(CLK_KIND_PERI, 0, 125 * MHz, 125 * MHz);
 }
 
-/*** ペリフェラルの有効化 ***/
-
+/**
+ * @brief GPIO、UART0および初期出力ピンを有効化・設定する。
+ * @details IO_BANK0、PADS_BANK0、UART0のリセットを解除し、P25をSIO出力、
+ *          P0とP1をUART0の送受信ピンとして設定する。
+ */
 static void init_peri(void)
 {
 
@@ -151,8 +177,10 @@ static void init_peri(void)
     out_w(GPIO_CTRL(1), 2);         /* P1端子 UART0-RX */
 }
 
-/*** メモリ・セクションの初期化 ***/
-
+/**
+ * @brief dataセクションを初期値で埋め、bssセクションを0で初期化する。
+ * @details リンカが提供する各セクション境界シンボルを使用する。
+ */
 static void init_section(void)
 {
     _UW     *src, *top, *end;
@@ -172,8 +200,9 @@ static void init_section(void)
     }
 }
 
-/*** システムタイマの初期化 ***/
-
+/**
+ * @brief SysTickをカーネルタイマー周期で動作するよう設定して開始する。
+ */
 static void init_systim(void)
 {
     out_w(SYST_CSR ,SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT);     /* SysTick動作停止 */
@@ -182,12 +211,16 @@ static void init_systim(void)
     out_w(SYST_CSR, SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT | SYST_CSR_ENABLE);   /* SysTick動作開始 */
 }
 
-/*** リセットハンドラ ****/
-
+/**
+ * @brief リセット直後に実行される初期化ハンドラ。
+ * @details 割り込みを禁止して例外優先度を設定し、クロック、周辺機器、メモリー、
+ *          SysTickを初期化する。初期化後に割り込みを有効化してmain()を実行する。
+ * @note main()が戻った場合も無限ループを継続する。
+ */
 void Reset_Handler(void)
 {
     UINT    intsts;
-    
+
     DI(intsts);     /* 割込みを無効化 */
 
     /* PendSVC例外とSysTick例外の優先度設定 */
